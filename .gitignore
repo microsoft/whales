@@ -1,3 +1,15 @@
+# Custom ignores
+data/cb_2021_us_state_500k.gpkg
+scripts/
+.vscode/
+output/
+configs/
+data/
+TODO.md
+labeling-tool/outputs/
+labeling-tool/inputs/
+*.ipynb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

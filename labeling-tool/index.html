@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="icon" href="favicon.ico">
+
+    <title>WHALE - WHale Active Learning Environment</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.2/dist/leaflet.css" integrity="sha256-sA+zWATbFveLLNqWO2gtiw3HL/lh1giY/Inf1BJ0z14=" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
+    <style type="text/css">
+
+        html {
+            position: relative;
+            min-height: 100%;
+        }
+
+        body {
+            margin-bottom: 60px;
+            padding-top: 2rem;
+        }
+
+        .row {
+            margin-bottom: 2rem;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .classButton {
+            color: #fff;
+            border-color: #000;
+        }
+
+        #imgSample {
+            width: 100%;
+            height: 100%;
+        }
+
+        .imgContainer {
+            max-width: 800px;
+            min-width: 500px;
+            height: 500px;
+            overflow: hidden;
+        }
+
+        .dimmed {
+            position: relative;
+        }
+
+        .dimmed:after {
+            content: " ";
+            z-index: 10;
+            display: block;
+            position: absolute;
+            height: 100%;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .pixelated {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            -ms-interpolation-mode: nearest-neighbor;
+        }
+
+        p {
+            padding:0px;
+            margin:0px;
+        }
+
+        .instructions p{
+            padding:5px;
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 60px;
+            line-height: 60px;
+            background-color: #f5f5f5;
+        }
+
+        #divLabel{
+            padding-left: 6rem;
+            padding-right: 6rem;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="container mt-4" id="divLogin">
+        <div class="row">
+            <div class="col-md-12 center">
+                <h2>WHALE - WHale Active Learning Environment</h2>
+                <form id="loginForm" class="mt-4">
+                    <div class="form-row">
+                        <div class="offset-md-3 col-md-4">
+                            <label class="sr-only" for="txtEmail">Email address</label>
+                            <input type="text" class="form-control" id="txtEmail" placeholder="name@example.com">
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-primary btn-block" id="btnStart">Start</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="offset-md-3 col-md-6 mt-4 mb-4">
+                <p>Your email address is used to ensure that you are not shown a sample more than once during a labeling campaign.
+                    As such, please use the same email address whenever using this tool.</p>
+            </div>
+            <div class="col-md-12 center mt-4">
+                <h3>About</h3>
+            </div>
+            <div class="offset-md-3 col-md-6 mt-4">
+                <p>The initiative Geospatial Artificial Intelligence for Animals (GAIA) brings together an extraordinary coalition of organizations to tackle the challenge of designing a large-scale operational platform to detect whales from space-orbiting satellites – government agencies (National Oceanic and Atmospheric Administration (NOAA), U.S. Naval Research Laboratory, the Bureau of Ocean Energy Management (BOEM), and the U.S. Geological Survey), academia (British Antarctic Survey (BAS), University of Edinburgh), and the private sector (Microsoft AI for Good Research Lab, MAXAR).</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="container-fluid" id="divLabel" style="display:none;">
+
+        <div class="row">
+            <h2>WHALE - WHale Active Learning Environment</h2>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <p>Patch ID: <span id="lblSampleID"></span></p>
+                <p>Date: <span id="lblDate">0</span></p>
+                <p>Location: <span id="lblLatitude">0</span> N, <span id="lblLongitude">0</span> E</p>
+                <p>Number of labels submitted: <span id="lblNumLabels">0</span></p>
+            </div>
+        </div>
+
+        <div class="row">
+
+            <div class="col-sm-12 col-md-12 col-lg-3">
+                <div id="map" style="width:100%;height:500px;"></div>
+            </div>
+
+            <div class="col-sm-12 col-md-12 col-lg-2 imgContainer" id="divImage">
+                <img src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" class="pixelated" id="imgSample"/>
+            </div>
+
+            <div class="col-sm-12 col-md-12 col-lg-4">
+                <div>
+                    <p>Whale classification confidence:</p>
+                    <div class="btn-group btn-group-toggle" data-toggle="buttons">
+                        <label class="btn btn-primary active">
+                            <input type="radio" name="radioConfidence" id="radioConfidence1" value="Possible" checked>Possible
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioConfidence" id="radioConfidence2" value="Probable">Probable
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioConfidence" id="radioConfidence3" value="Definite">Definite
+                        </label>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <p>Whale species type:</p>
+                    <div class="btn-group btn-group-toggle" data-toggle="buttons">
+                        <label class="btn btn-primary active">
+                            <input type="radio" name="radioSpecies" id="radioSpecies1" value="Unknown" checked>Unknown
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies2" value="Right">Right
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies3" value="Humpback">Humpback
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies5" value="Fin">Fin
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies6" value="Sei">Sei
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies7" value="Minke">Minke
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies8" value="Beluga">Beluga
+                        </label>
+                        <label class="btn btn-primary">
+                            <input type="radio" name="radioSpecies" id="radioSpecies9" value="Other">Other
+                        </label>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <p>Comments:</p>
+                    <textarea class="form-control" id="txtComments" rows="4"></textarea>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label for="rangeZoom">Zoom (%)</label>
+                            <input type="range" class="form-control-range" id="rangeZoom" min="100" max="400" value="100">
+                        </div>
+                        <div class="form-group">
+                            <label for="rangeBrightness">Brightness (%)</label>
+                            <input type="range" class="form-control-range" id="rangeBrightness" min="0" max="200" value="100">
+                        </div>
+                        <div class="form-group">
+                            <label for="rangeContrast">Contrast (%)</label>
+                            <input type="range" class="form-control-range" id="rangeContrast" min="0" max="200" value="100">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row justify-content-center" id="divButtons"></div>
+
+        <div class="row">
+            <div class="col-md-12 instructions">
+                <h2>Instructions</h2>
+                <p>
+                    This tool will display a 100m x 100m "chip" of high-resolution imagery that is centered on some feature in the ocean that our algorithm has deemed "interesting".
+                    You can label the image chip by clicking one of the 16 colored buttons above. After clicking a button, the label will be saved, and a new image chip will be displayed.
+                </p>
+                <p>
+                    If you think that the "interesting" feature is a whale, then you can select your confidence in this classification and what species of whale you think it is using the two sets of radio buttons to the right of the image chip.
+                    If you have any other comments on an image chip that you would like to save, then you can enter them in the text box below the radio buttons.
+                    Finally, the map on the left of the image chip shows the position of the image on Earth so that you can apply any location based priors to your classification.
+                </p>
+                <p>
+                    As you label image chips, the backend server will attempt to learn a model to automatically classify chips, and will serve you images that it is most unsure about.
+                </p>
+            </div>
+        </div>
+
+    </div>
+
+    <footer class="footer">
+        <div class="container-fluid" style="padding-left:6rem; padding-right:6rem;">
+            <img src="images/Logo-blue.png" style="width:150px;" alt="Microsoft AI for Good logo"/>
+            <span class="text-muted" style="position:relative; margin-left:15px; top: 2px; font-size:1.1rem">and the Geospatial Artificial Intelligence for Animals (GAIA) initiative</span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.2/dist/leaflet.js" integrity="sha256-o9N1jGDZrf5tS+Ft4gbIK7mYMipq9lqpVJ91xHSyKhg=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.1/dist/jquery.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-Fy6S3B9q64WdZWQUiU+q4/2Lc9npb8tCaSX9FK7E8HnRr0Jz8D6OP9dO5Vg3Q9ct" crossorigin="anonymous"></script>
+
+    <script type="text/javascript">
+
+        var BACKEND_URL = "http://{{host}}:{{port}}/"
+        const CLASSES = [
+            "water",
+            "cloud",
+            "bird",
+            "whitecap",
+            "plane",
+            "ship",
+            "shadow",
+            "oil",
+            "aquaculture",
+            "debris",
+            "rock",
+            "mudflats_land",
+            "buoy",
+            "whale",
+            "zooplankton",
+            "unsure"
+        ];
+
+        const CLASS_TO_COLOR = {
+            "water": "#1976D2",
+            "cloud": "#757575",
+            "bird": "#BA68C8",
+            "whitecap": "#000000",
+            "plane": "#F9A825",
+            "ship": "#FFA000",
+            "shadow": "#444444",
+            "oil": "#222222",
+            "aquaculture": "#008000",
+            "debris": "#647547",
+            "rock": "#33691E",
+            "mudflats_land": "#00FFFF",
+            "buoy": "#F8BBD0",
+            "whale": "#F14336",
+            "zooplankton": "#FF0000",
+            "unsure": "#CCCCCC"
+        }
+        const CLASS_TO_PRETTY_NAME = {
+            "water": "Water",
+            "cloud": "Cloud",
+            "bird": "Bird",
+            "whitecap": "Any waves",
+            "plane": "Plane",
+            "ship": "Ship",
+            "shadow": "Shadow",
+            "oil": "Oil",
+            "aquaculture": "Aquaculture",
+            "debris": "Debris",
+            "rock": "Rock",
+            "mudflats_land": "Mudflats/Land",
+            "buoy": "Buoy",
+            "whale": "Whale",
+            "zooplankton": "Zooplankton",
+            "unsure": "Unsure"
+        }
+
+        var gIsLoading = false;
+
+        var currentSample = null;
+        var numLabels = 0;
+
+        var gMap = null;
+        var gMarker = null;
+        var gBrightness = 100;
+        var gContrast = 100;
+        var gZoom = 1.0;
+        var gConfidence = "Possible";
+        var gSpecies = "Unknown";
+        var gEmail = "none@none.com";
+
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            minZoom: 9,
+            maxZoom: 21,
+            maxNativeZoom: 18,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        });
+
+        var notifyFail = function (jqXHR, textStatus, errorThrown) {
+            var response = $.parseJSON(jqXHR.responseText);
+            console.log("Error in processing server: " + response.error);
+        };
+
+        var recordSample = function (label) {
+            currentSample["user_label"] = label;
+            currentSample["confidence"] = gConfidence;
+            currentSample["species"] = gSpecies;
+            currentSample["comments"] = $("#txtComments").val();
+            currentSample["email"] = gEmail;
+
+            $.ajax({
+                type: "POST",
+                url: BACKEND_URL + "recordSample",
+                data: JSON.stringify(currentSample),
+                success: function (data, textStatus, jqXHR) {
+                    $("#txtComments").val("");
+                    numLabels += 1;
+                    $("#lblNumLabels").text(numLabels);
+                    getSample();
+                },
+                error: notifyFail,
+                dataType: "json",
+                contentType: "application/json"
+            });
+        };
+
+        var addScaleBar = function(imgId, resolution){
+            var img = document.getElementById(imgId);
+            var scaleBar = document.createElement("div");
+            scaleBar.style.position = "absolute";
+            scaleBar.style.bottom = "10px";
+            scaleBar.style.left = "30px";
+            scaleBar.style.width = "50%";
+            scaleBar.style.height = "20px";
+            scaleBar.style.backgroundColor = "rgba(255, 255, 255, 0.5)";
+            scaleBar.style.color = "black";
+            scaleBar.style.textAlign = "left";
+            scaleBar.style.fontSize = "16px";
+            scaleBar.style.fontWeight = "bold";
+            scaleBar.style.lineHeight = "20px";
+            scaleBar.id = "lblScaleBar";
+            scaleBar.innerHTML = "50m";
+            img.parentNode.appendChild(scaleBar);
+        };
+
+        var getSample = function () {
+            $(".imgContainer").addClass("dimmed");
+            gIsLoading = true;
+
+            $.ajax({
+                type: "POST",
+                url: BACKEND_URL + "getSample",
+                data: JSON.stringify({ "email": gEmail }),
+                success: function (data, textStatus, jqXHR) {
+
+                    // Check if "error" is a key in data
+                    if ("error" in data) {
+                        if(data["error"] == "No more samples to label."){
+                            $("#divButtons").html("<h3>No more samples to label.</h3>");
+                            return;
+                        }
+                    }
+
+                    const latitude = parseFloat(data["latitude"]);
+                    const longitude = parseFloat(data["longitude"]);
+
+                    gMarker.setLatLng([latitude, longitude]);
+                    gMap.setView([latitude, longitude], 11);
+                    $("#lblLatitude").html(latitude.toFixed(5));
+                    $("#lblLongitude").html(longitude.toFixed(5));
+
+                    let img = "data:image/png;base64," + data["img"];
+                    let date = data["date"];
+
+                    $("#lblSampleID").html(data["sample_idx"]);
+                    $("#lblDate").html(date);
+
+                    // Render images
+                    $("#divImage").html("");
+                    $("#divImage").append(`
+                        <img src="${img}" class="pixelated" id="imgSample"/>
+                    `);
+
+                    addScaleBar("imgSample", 0.5);
+                    updateImageCSS();
+
+
+                    // Render buttons
+                    $("#divButtons").html("");
+                    for(let i=0; i<CLASSES.length; i++){
+                        let className = CLASSES[i]
+                        let color = CLASS_TO_COLOR[className];
+                        let prettyName = CLASS_TO_PRETTY_NAME[className]
+
+                        $("#divButtons").append(`
+                            <div class="col-lg-2 col-md-6 mb-1 d-md-block">
+                                <button type="button" class="btn btn-lg btn-block classButton" id="${className}" style="background-color:${color};">${prettyName} (${i+1})</button>
+                            </div>
+                        `)
+                    }
+
+                    $(".classButton").click(function () {
+                        if (!gIsLoading) {
+                            recordSample(this.id);
+                        }
+                    })
+
+                    delete data["img"];
+                    currentSample = data;
+                    $(".imgContainer").removeClass("dimmed");
+                    gIsLoading = false;
+                },
+                error: notifyFail,
+                dataType: "json",
+                contentType: "application/json"
+            });
+        };
+
+
+        var updateImageCSS = function (){
+            $("#imgSample").css("transform", "scale("+gZoom+")");
+            $("#imgSample").css("filter", "brightness("+gBrightness+"%) contrast("+gContrast+"%)");
+            $("#lblScaleBar").html((50 / gZoom).toFixed(2) + "m");
+        };
+
+
+        var doLoginSetup = function(){
+            $("#divLogin").hide();
+            $("#divLabel").show();
+            gEmail = $("#txtEmail").val();
+
+            gMap = L.map('map', {
+                center: [0,0],
+                zoom: 11,
+                minZoom: 9,
+                maxZoom: 21,
+                zoomControl: true,
+                keyboard: false,
+                scrollWheelZoom: false,
+                doubleClickZoom: false,
+                boxZoom: false,
+                dragging: false,
+                layers: [osm]
+            });
+
+            gMarker = new L.Marker([0, 0], {
+                title: "Current point",
+                clickable: false,
+                draggable: false
+            });
+            gMarker.addTo(gMap);
+
+            getSample();
+        }
+
+        $(document).ready(function () {
+
+            $(document).keypress(function (e) {
+                if (!gIsLoading && e.target.id !== "txtComments" && e.target.id !== "txtEmail") {
+                    for(var i=0; i<CLASSES.length || i<10; i++){
+                        var className = CLASSES[i]
+                        if (e.which == 49+i) {
+                            recordSample(className);
+                        }
+                    }
+                    e.preventDefault();
+                }else if(e.target.id == "txtComments"){
+
+                }else if(e.target.id == "txtEmail"){
+
+                }else{
+                    e.preventDefault();
+                }
+            });
+
+            $("#loginForm").submit(function(e){
+                doLoginSetup();
+                e.preventDefault();
+            });
+            $("#btnStart").click(function(){
+                doLoginSetup();
+            });
+
+            // Fire event when radio button value changes
+            $("input[name='radioConfidence']").change(function () {
+                gConfidence = this.value;
+            });
+            $("input[name='radioSpecies']").change(function () {
+                gSpecies = this.value;
+            });
+
+            $("#rangeZoom").on("input change", function(e){
+                gZoom = parseInt(e.target.value) / 100.0;
+                updateImageCSS();
+            });
+            $("#rangeBrightness").on("input change", function(e){
+                gBrightness = parseInt(e.target.value);
+                updateImageCSS();
+            });
+            $("#rangeContrast").on("input change", function(e){
+                gContrast = parseInt(e.target.value);
+                updateImageCSS();
+            });
+
+        });
+
+    </script>
+</body>
+
+</html>
