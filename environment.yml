@@ -1,0 +1,32 @@
+name: whales
+channels:
+  - conda-forge
+dependencies:
+  - gdal
+  - python<3.11  # don't use the very latest version of python in case wheels aren't made for everything
+  - pip
+  - pip:
+    - adlfs
+    - azure-storage-blob
+    - black[jupyter]>=21.8
+    - bottle>=0.12
+    - dask_geopandas
+    - deltalake
+    - flake8>=3.8
+    - geopandas
+    - isort[colors]>=5.8
+    - jupyter
+    - mercantile>=1.2
+    - mypy>=0.900
+    - planetary_computer
+    - pyarrow
+    - pytest>=6.1.2
+    - pytest-cov>=2.4
+    - requests
+    - requests-auth>=0.6
+    - scikit-activeml>=0.4.1
+    - tensorboard
+    - timezonefinder>=6.2
+    - torchgeo[datasets,docs,style,tests]>=0.4.0
+    - types-requests  # mypy types for the requests package
+    - utm
