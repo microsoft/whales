@@ -7,8 +7,10 @@ This repository contains code for an [_active learning_](https://en.wikipedia.or
 - A script for detecting __interesting points__ in imagery
 - A labeling tool that runs an active learning pipeline to classify each __interesting point__ as a whale or not
 
-![Screenshot of application](/images/screenshot.png =800x)
 
+<p align="center">
+    <img src="images/screenshot.png" width="800" alt="Screenshot of labeling tool"/>
+</p>
 
 ## Setup
 
