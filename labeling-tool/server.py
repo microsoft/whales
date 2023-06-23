@@ -130,10 +130,11 @@ def _data_loader_process(*args) -> None:
 
 
 def __data_loader_process(
-    label_fn: str,
+    output_fn_by_idx: str,
     locations_by_idx,
     fn_by_idx,
     date_by_idx,
+    sampling_mode,
 ) -> None:
     """ """
 
@@ -225,8 +226,8 @@ def __data_loader_process(
             except Empty:
                 pass
 
-        with open(label_fn, "a") as f:
-            for row in rows:
+        for row in rows:
+            with open(output_fn_by_idx[row['sample_idx']], "a") as f:
                 f.write(
                     f"{row['sample_idx']},{row['latitude']},{row['longitude']},{row['email']},{row['client_ip']},{row['out_time']},{row['in_time']},{row['user_label']},{row['confidence']},{row['species']},\"{row['comments']}\"\n"
                 )
@@ -260,8 +261,9 @@ def main():
         default=8080,
     )
     parser.add_argument(
-        "--input_dir",
+        "--input_dirs",
         required=True,
+        nargs="+",
         type=str,
         help="Root directory of run",
     )
@@ -270,42 +272,54 @@ def main():
         action="store_true",
         help="Flag to enable overwriting of `output_fn`",
     )
+    parser.add_argument(
+        "--sampling_mode",
+        choices=["random", "active"],
+        default="random",
+        type=str,
+        help="Root directory of run",
+    )
     args = parser.parse_args()
 
-    assert os.path.exists(args.input_dir), "The input file does not exist"
-    for fn in ["inputs.csv", "metadata.json"]:
-        assert os.path.exists(os.path.join(args.input_dir, fn))
+    for input_dir in args.input_dirs:
+        assert os.path.exists(input_dir), "The input file does not exist"
+        for fn in ["inputs.csv", "metadata.json"]:
+            assert os.path.exists(os.path.join(input_dir, fn))
 
-    output_fn = os.path.join(args.input_dir, "labels.csv")
-    if not os.path.exists(output_fn) or args.overwrite:
-        with open(output_fn, "w") as f:
-            f.write(
-                "sample_idx,latitude,longitude,email,client_ip,out_time,in_time,user_label,confidence,species,comments\n"
-            )
-
-    df = pd.read_csv(os.path.join(args.input_dir, "inputs.csv"))
-    metadata = json.load(open(os.path.join(args.input_dir, "metadata.json"), "r"))
+    for input_dir in args.input_dirs:
+        output_fn = os.path.join(input_dir, "labels.csv")
+        if not os.path.exists(output_fn) or args.overwrite:
+            with open(output_fn, "w") as f:
+                f.write(
+                    "sample_idx,latitude,longitude,email,client_ip,out_time,in_time,user_label,confidence,species,comments\n"
+                )
 
     location_by_idx = dict()
-    fn_by_idx = defaultdict(list)
-    date_by_idx = defaultdict(list)
+    fn_by_idx = dict()
+    date_by_idx = dict()
+    output_fn_by_idx = dict()
 
-    for i in range(df.shape[0]):
-        row = df.iloc[i]
-        idx, lat, lon, fn = row["idx"], row["lat"], row["lon"], row["fn"]
-        if fn.startswith("labeling-tool/"):
-            fn = fn.replace("labeling-tool/", "")
-        idx = int(idx)
-        lat = float(lat)
-        lon = float(lon)
-        location_by_idx[idx] = (lat, lon)
-        date_by_idx[idx] = metadata["date"]
-        fn_by_idx[idx] = fn
+    for input_dir in args.input_dirs:
+        df = pd.read_csv(os.path.join(input_dir, "inputs.csv"))
+        metadata = json.load(open(os.path.join(input_dir, "metadata.json"), "r"))
+        for i in range(df.shape[0]):
+            row = df.iloc[i]
+            idx, lat, lon, fn = row["idx"], row["lat"], row["lon"], row["fn"]
+            if fn.startswith("labeling-tool/"):
+                fn = fn.replace("labeling-tool/", "")
+            idx = int(idx)
+            idx = f"{metadata['dar']}-{metadata['date']}-{metadata['catid']}-{idx}"
+            lat = float(lat)
+            lon = float(lon)
+            location_by_idx[idx] = (lat, lon)
+            date_by_idx[idx] = metadata["date"]
+            fn_by_idx[idx] = fn
+            output_fn_by_idx[idx] = os.path.join(input_dir, "labels.csv")
 
     # Start the monitoring / sampling loop
     p1 = Process(
         target=_data_loader_process,
-        args=(output_fn, location_by_idx, fn_by_idx, date_by_idx),
+        args=(output_fn_by_idx, location_by_idx, fn_by_idx, date_by_idx, args.sampling_mode),
     )
     p1.start()
 
