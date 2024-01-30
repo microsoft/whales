@@ -101,9 +101,7 @@ def pansharpen(
 
     eps = 0.00001
 
-    ###########################
     # Read panchromatic data
-    ###########################
     tic = time.time()
     with rasterio.open(panchromatic_fn) as f:
         pan_metadata = f.profile
@@ -125,9 +123,7 @@ def pansharpen(
             f"Finished reading the panchromatic data in {time.time() - tic:0.2f} seconds"
         )
 
-    ###########################
     # Read multispectral data
-    ###########################
     tic = time.time()
     with rasterio.open(multispectral_fn) as f:
         assert (
@@ -145,9 +141,7 @@ def pansharpen(
             f"Finished reading the multispectral data in {time.time() - tic:0.2f} seconds"
         )
 
-    ###########################
     # Resample the multispectral data if needed
-    ###########################
     tic = time.time()
     if multispectral_height < pan_height and multispectral_width < pan_width:
         multispectral_img = cv2.resize(
@@ -168,9 +162,7 @@ def pansharpen(
             + f" {time.time() - tic:0.2f} seconds"
         )
 
-    ###########################
-    # Get down to business
-    ###########################
+    # Do pansharpening
     tic = time.time()
     pansharpened_image = np.zeros(
         (len(output_bands), pan_height, pan_width), dtype=pan_metadata["dtype"]
@@ -210,9 +202,7 @@ def pansharpen(
     if verbose:
         print(f"Finished pansharpening in {time.time() - tic:0.2f} seconds")
 
-    ###########################
     # Write output
-    ###########################
     tic = time.time()
     new_metadata = {
         "driver": "COG",

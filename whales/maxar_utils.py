@@ -122,61 +122,62 @@ def convert_maxar_dir_to_cog(directory, target_extension="TIL", verbose=False):
         return output_fn
 
 
-def convert_maxar_cog_to_reprojected(directory, verbose=False):
-    directory = ensure_path_directory_representation(directory)
-
-    fns = list(directory.glob("*_cog.tif"))
-    assert len(fns) == 1
-    input_fn = fns[0]
-    output_fn = input_fn.parent / input_fn.name.replace("_cog.tif", "_reprojected.tif")
+def convert_maxar_til_to_reprojected_cog(fn, verbose=False):
+    assert str(fn).endswith(".TIL")
+    tmp_fn = fn.parent / fn.name.replace(".TIL", ".vrt")
+    output_fn = fn.parent / fn.name.replace(".TIL", "_reprojected.tif")
 
     if output_fn.exists():
         if verbose:
             print("File already exists")
         return output_fn
 
-    with rasterio.open(input_fn) as f:
-        old_crs = f.crs
+    # First use gdalwarp to create a VRT, this embeds the projection information
+    command = [
+        "gdalwarp",
+        "-q",
+        "-of", "VRT",
+        str(fn),
+        str(tmp_fn)
+    ]
+    subprocess.call(command)
+
+    with rasterio.open(tmp_fn) as f:
+        tmp_crs = f.crs
         bounds = shapely.geometry.box(*f.bounds)
         lat = bounds.centroid.y
         lon = bounds.centroid.x
 
-    if old_crs is None:
-        raise IOError("CRS doesn't exist!")
+    if tmp_crs is None:
+        raise IOError("Could not read CRS from TIL file")
 
-    if old_crs == "EPSG:4326":
-        if verbose:
-            print("Converting...")
-        projection_dict = {"proj": "utm", "zone": utm.latlon_to_zone_number(lat, lon)}
-        if lat < 0:
-            projection_dict["south"] = True
-        new_crs = rasterio.crs.CRS.from_dict(projection_dict)
+    if verbose:
+        print("Converting...")
+    projection_dict = {"proj": "utm", "zone": utm.latlon_to_zone_number(lat, lon)}
+    if lat < 0:
+        projection_dict["south"] = True
+    new_crs = rasterio.crs.CRS.from_dict(projection_dict)
 
-        command = [
-            "gdalwarp",
-            "-q",
-            "-t_srs",
-            new_crs.to_string(),
-            "-co",
-            "BIGTIFF=YES",
-            "-co",
-            "NUM_THREADS=ALL_CPUS",
-            "-co",
-            "COMPRESS=LZW",
-            "-co",
-            "PREDICTOR=2",
-            "-of",
-            "COG",
-            str(input_fn),
-            str(output_fn),
-        ]
-        subprocess.call(command)
-        os.remove(input_fn)
-
-    else:  # assume the COG is already projected
-        if verbose:
-            print("No need to convert, file is already projected, just renaming")
-        os.rename(input_fn, output_fn)
+    command = [
+        "gdalwarp",
+        "-q",
+        "-t_srs",
+        new_crs.to_string(),
+        "-co",
+        "BIGTIFF=YES",
+        "-co",
+        "NUM_THREADS=ALL_CPUS",
+        "-co",
+        "COMPRESS=LZW",
+        "-co",
+        "PREDICTOR=2",
+        "-of",
+        "COG",
+        str(tmp_fn),
+        str(output_fn),
+    ]
+    subprocess.call(command)
+    os.remove(tmp_fn)
 
     return output_fn
 
@@ -409,7 +410,6 @@ def build_index(root_directory, output_fn):
     schema = {
         "geometry": "Polygon",
         "properties": {
-            "url": "str",
             "fn": "str",
             "directory": "str",
             "crs": "str",
@@ -450,19 +450,15 @@ def build_index(root_directory, output_fn):
             if i % 10 == 0:
                 print(f"{i}/{len(fn_list)}")
 
-            url = fn.replace(
-                "/mnt/blobfuse/gaia-images/",
-                "https://gaiasatellite.blob.core.windows.net/gaia-images/",
-            ).replace(" ", "%20")
+            path_to_fn = os.path.join(directory, fn)
 
-            with rasterio.open(url) as g:
+            with rasterio.open(path_to_fn) as g:
                 crs = g.crs.to_string() if g.crs is not None else "EPSG:4326"
 
                 geom = shapely.geometry.mapping(shapely.geometry.box(*g.bounds))
                 warped_geom = rasterio.warp.transform_geom(crs, "EPSG:4326", geom)
 
                 properties = {
-                    "url": url,
                     "fn": fn,
                     "directory": directory,
                     "crs": crs,

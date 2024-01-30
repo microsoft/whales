@@ -8,12 +8,13 @@ dependencies:
   - pip:
     - bottle>=0.12
     - jupyter
+    - mercantile>=1.2
+    - pyarrow>=15.0.0  # to silence warning from Pandas, can be removed after pandas 3.0
     - requests
     - requests-auth>=0.6
-    - torch<2.1
     - tensorboard>=2.14.1
     - timezonefinder>=6.2
+    - torch<2.1  # to account for driver support on my particular system, can be relaxed
     - torch-tb-profiler
-    - mercantile>=1.2
     - torchgeo[datasets,docs,style,tests]>=0.5.0
     - utm

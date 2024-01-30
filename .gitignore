@@ -9,6 +9,7 @@ TODO.md
 labeling-tool/outputs/
 labeling-tool/inputs/
 *.ipynb
+tmp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
