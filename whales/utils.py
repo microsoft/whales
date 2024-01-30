@@ -85,9 +85,6 @@ def pansharpen(
         force_byte: Flag the converts the output to byte format without scaling
         verbose: Flag to enable printing timing information and progress during execution
 
-    Returns:
-        pansharpened_image: The pansharpened multispectral bands in C x H x W format
-
     Raises:
         ValueError: if the `method` parameter is not valid or the dimensions of the
             inputs don't make sense
@@ -97,7 +94,8 @@ def pansharpen(
     if method not in {"simple_brovey", "simple_mean", "esri", "brovey"}:
         raise ValueError(f"Method '{method}' not recognized")
     if os.path.exists(output_fn):
-        raise IOError("The output file already exists")
+        print("The output file already exists")
+        return
 
     eps = 0.00001
 
@@ -224,5 +222,3 @@ def pansharpen(
             f.write(pansharpened_image)
     if verbose:
         print(f"Finished writing output in {time.time() - tic:0.2f} seconds")
-
-    return pansharpened_image

@@ -1,21 +1,13 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
-"""
-This script is used to pre-process a set of 1B Maxar images.
-
-It takes as input:
-- An input directory that is assumed to contain unzipped folders of 1B Maxar products.
-    Here each folder will be a multispectral or panchromatic scene and contain
-    unprojected TIF of NTF files.
-- An input name that is used to name the _set_ of output files
-- An output directory that is used to store the output files
-
+"""This script is used to pre-process a set of 1B Maxar images.
 """
 import argparse
 import os
 import shutil
 import subprocess
 from collections import defaultdict
+from pathlib import Path
 
 import fiona
 import pandas as pd
@@ -96,19 +88,60 @@ def main(args):
     # Create output directories
     os.makedirs(target_dir, exist_ok=True)
 
-    # ------------------------------------------------
-    # Part 1 - convert to COG and reproject to UTM
-    # ------------------------------------------------
+    # Get the list of files
     pan_fns = maxar_utils.get_files_from_maxar_directory(args.pan_dir)
     ms_fns = maxar_utils.get_files_from_maxar_directory(args.ms_dir)
 
-    print("Converting input files to reprojected COGs")
-    output_pan_fn = maxar_utils.convert_maxar_til_to_reprojected_cog(pan_fns["til"], verbose=args.verbose)
-    output_ms_fn = maxar_utils.convert_maxar_til_to_reprojected_cog(ms_fns["til"], verbose=args.verbose)
+    # Reproject the files and save as COG
+    if args.verbose:
+        print("Converting input files to reprojected COGs")
+    pan_cog_fn = maxar_utils.convert_maxar_til_to_reprojected_cog(pan_fns["til"], verbose=args.verbose)
+    ms_cog_fn = maxar_utils.convert_maxar_til_to_reprojected_cog(ms_fns["til"], verbose=args.verbose)
+    pan_cog_fn = Path(pan_cog_fn)
+    ms_cog_fn = Path(ms_cog_fn)
+    output_pan_cog_fn = os.path.join(target_dir, pan_cog_fn.name)
+    output_ms_cog_fn = os.path.join(target_dir, ms_cog_fn.name)
+    output_ms_resampled_cog_fn = os.path.join(target_dir, f"{ms_cog_fn.stem}_reprojected_resampled-to-pan.tif")
+    output_pansharpened_cog_fn = os.path.join(target_dir, f"{ms_cog_fn.stem}_pansharpened.tif")
+    output_geojson_fn = os.path.join(target_dir, ms_cog_fn.name.replace("_reprojected.tif", "_metadata.geojson"))
 
-    print("Created:")
-    print(f" - {output_pan_fn}")
-    print(f" - {output_ms_fn}")
+    shutil.copyfile(pan_cog_fn, output_pan_cog_fn)
+    shutil.copyfile(ms_cog_fn, output_ms_cog_fn)
+
+    # Resample the multispectral image to the size of the panchromatic image so we can
+    # pansharpen easily. TODO: Should we do this in memory?
+    if args.verbose:
+        print("Resampling each multispectral image to the size of the panchromatic image")
+    maxar_utils.merge_panchromatic_and_multispectral(
+        output_pan_cog_fn, output_ms_cog_fn, output_ms_resampled_cog_fn
+    )
+
+    # Pansharpen
+    if args.verbose:
+        print("Pansharpening the multispectral image")
+    pansharpen(
+        panchromatic_fn=output_pan_cog_fn,
+        multispectral_fn=output_ms_resampled_cog_fn,
+        output_fn=output_pansharpened_cog_fn,
+        idx_red=4,
+        idx_green=2,
+        idx_blue=1,
+        idx_nir=6,
+        method="simple_brovey",
+        output_bands=[4, 2, 1],
+        verbose=args.verbose,
+    )
+
+    # Grab metadata from the XML files and save to GeoJSON
+    if args.verbose:
+        print("Gathering metadata")
+    # Example of how to get a dictionary of metadata from the XML file
+    #metadata = maxar_utils.get_maxar_metadata(ms_fns["xml"])
+    maxar_utils.build_index(
+        output_pansharpened_cog_fn,
+        pan_fns["xml"],
+        output_geojson_fn
+    )
 
 
 if __name__ == "__main__":

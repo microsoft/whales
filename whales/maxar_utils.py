@@ -79,49 +79,6 @@ def get_reprojected_files_from_maxar_directory(directory):
         raise IOError("Not a maxar directory")
 
 
-def convert_maxar_dir_to_cog(directory, target_extension="TIL", verbose=False):
-    directory = ensure_path_directory_representation(directory)
-
-    reprojected_file = list(directory.glob("*_reprojected.tif"))
-    has_reprojected = len(reprojected_file) == 1
-
-    if has_reprojected:
-        if verbose:
-            print("This directory has already been converted to a reprojected format")
-    else:
-        fns = list(directory.glob(f"*.{target_extension}"))
-        assert len(fns) == 1
-        input_fn = fns[0]
-        output_fn = input_fn.parent / input_fn.name.replace(
-            f".{target_extension}", "_cog.tif"
-        )
-
-        if output_fn.exists():
-            if verbose:
-                print("File already exists")
-        else:
-            if verbose:
-                print("Converting...")
-            command = [
-                "gdalwarp",
-                "-q",
-                "-co",
-                "BIGTIFF=YES",
-                "-co",
-                "NUM_THREADS=ALL_CPUS",
-                "-co",
-                "COMPRESS=LZW",
-                "-co",
-                "PREDICTOR=2",
-                "-of",
-                "COG",
-                str(input_fn),
-                str(output_fn),
-            ]
-            subprocess.call(command)
-        return output_fn
-
-
 def convert_maxar_til_to_reprojected_cog(fn, verbose=False):
     assert str(fn).endswith(".TIL")
     tmp_fn = fn.parent / fn.name.replace(".TIL", ".vrt")
@@ -264,14 +221,8 @@ def merge_panchromatic_and_multispectral(pan_fn, ms_fn, output_fn):
     return output_fn
 
 
-def get_maxar_metadata(directory, return_flat=True, timezone_finder=None):
-    directory = ensure_path_directory_representation(directory)
-
-    fns = list(directory.glob("*.XML"))
-    assert len(fns) == 1
-    input_fn = str(fns[0])
-
-    xmldoc = minidom.parse(input_fn)
+def get_maxar_metadata(xml_fn, timezone_finder=None):
+    xmldoc = minidom.parse(str(xml_fn))
 
     root = xmldoc.getElementsByTagName("IMD")[0]
 
@@ -384,29 +335,7 @@ def get_maxar_metadata(directory, return_flat=True, timezone_finder=None):
     return metadata
 
 
-def build_index(root_directory, output_fn):
-    if isinstance(root_directory, Path):
-        root_directory = str(root_directory)
-    if isinstance(output_fn, Path):
-        output_fn = str(output_fn)
-
-    assert os.path.isdir(root_directory)
-    assert not os.path.exists(output_fn)
-
-    fn_list = []
-    for root, dirs, fns in os.walk(root_directory):
-        if len(dirs) == 0:
-            try:
-                files = get_reprojected_files_from_maxar_directory(root)
-                fn_list.append(
-                    (
-                        str(files["img"]),
-                        str(root),
-                    )
-                )
-            except IOError as e:
-                print(f"ERROR at {root}, {str(e)}")
-
+def build_index(image_fn, xml_fn, output_fn):
     schema = {
         "geometry": "Polygon",
         "properties": {
@@ -446,36 +375,35 @@ def build_index(root_directory, output_fn):
     with fiona.open(
         output_fn, "w", driver="GeoJSON", crs="EPSG:4326", schema=schema
     ) as f:
-        for i, (fn, directory) in enumerate(fn_list):
-            if i % 10 == 0:
-                print(f"{i}/{len(fn_list)}")
 
-            path_to_fn = os.path.join(directory, fn)
+        path = Path(image_fn)
+        fn = str(path.name)
+        directory = str(path.parent)
 
-            with rasterio.open(path_to_fn) as g:
-                crs = g.crs.to_string() if g.crs is not None else "EPSG:4326"
+        with rasterio.open(str(image_fn)) as g:
+            crs = g.crs.to_string() if g.crs is not None else "EPSG:4326"
 
-                geom = shapely.geometry.mapping(shapely.geometry.box(*g.bounds))
-                warped_geom = rasterio.warp.transform_geom(crs, "EPSG:4326", geom)
+            geom = shapely.geometry.mapping(shapely.geometry.box(*g.bounds))
+            warped_geom = rasterio.warp.transform_geom(crs, "EPSG:4326", geom)
 
-                properties = {
-                    "fn": fn,
-                    "directory": directory,
-                    "crs": crs,
-                    "x_res": g.profile["transform"].a,
-                    "y_res": g.profile["transform"].e,
-                }
+            properties = {
+                "fn": fn,
+                "directory": directory,
+                "crs": crs,
+                "x_res": g.profile["transform"].a,
+                "y_res": g.profile["transform"].e,
+            }
 
-                properties.update(
-                    get_maxar_metadata(directory, timezone_finder=TIMEZONE_FINDER)
-                )
+            properties.update(
+                get_maxar_metadata(xml_fn, timezone_finder=TIMEZONE_FINDER)
+            )
 
-                properties["height"] = g.height
-                properties["width"] = g.width
+            properties["height"] = g.height
+            properties["width"] = g.width
 
-                row = {
-                    "type": "Feature",
-                    "geometry": warped_geom,
-                    "properties": properties,
-                }
-                f.write(row)
+            row = {
+                "type": "Feature",
+                "geometry": warped_geom,
+                "properties": properties,
+            }
+            f.write(row)
