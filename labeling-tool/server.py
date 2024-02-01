@@ -5,10 +5,12 @@ import base64
 import copy
 import json
 import multiprocessing
+multiprocessing.set_start_method('fork')
+
 import os
 import time
 from collections import defaultdict
-from multiprocessing import Manager, Process, freeze_support
+from multiprocessing import Manager, Process
 from queue import Empty
 import pandas as pd
 
@@ -234,8 +236,6 @@ def __data_loader_process(
 
 
 def main():
-    freeze_support()
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",
