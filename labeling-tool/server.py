@@ -5,12 +5,10 @@ import base64
 import copy
 import json
 import multiprocessing
-multiprocessing.set_start_method('fork')
-
 import os
 import time
 from collections import defaultdict
-from multiprocessing import Manager, Process
+from multiprocessing import Manager, Process, freeze_support
 from queue import Empty
 import pandas as pd
 
@@ -18,15 +16,20 @@ import bottle
 import cv2
 import imageio.v2 as imageio
 
-manager = Manager()
-SAMPLE_QUEUE = manager.Queue()
-OUTPUT_QUEUE = manager.Queue()
-PENDING_LABELS = manager.dict()
-LABEL_COUNTS = manager.dict()
+manager = None
+SAMPLE_QUEUE = None
+OUTPUT_QUEUE = None
+PENDING_LABELS = None
+LABEL_COUNTS = None
 TIMEOUT_THRESHOLD = 600  # in seconds
 EXPECTED_ITERATION_TIME = 5  # in seconds
 NUM_REQUEUE_TIMES = 3
 
+def initialize_global_manager() -> Manager:
+    global manager
+    if manager is None:
+        manager = Manager()
+    return manager
 
 def record_sample() -> str:
     bottle.response.content_type = "application/json"
@@ -236,6 +239,8 @@ def __data_loader_process(
 
 
 def main():
+    global manager, SAMPLE_QUEUE, OUTPUT_QUEUE, PENDING_LABELS, LABEL_COUNTS
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",
@@ -318,6 +323,12 @@ def main():
             fn_by_idx[idx] = fn
             output_fn_by_idx[idx] = os.path.join(input_dir, "labels.csv")
 
+    manager = initialize_global_manager()
+    SAMPLE_QUEUE = manager.Queue()
+    OUTPUT_QUEUE = manager.Queue()
+    PENDING_LABELS = manager.dict()
+    LABEL_COUNTS = manager.dict()
+
     # Start the monitoring / sampling loop
     p1 = Process(
         target=_data_loader_process,
@@ -356,4 +367,5 @@ def main():
 
 
 if __name__ == "__main__":
+    freeze_support()
     main()
