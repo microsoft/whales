@@ -32,6 +32,7 @@ def initialize_global_manager() -> Manager:
     return manager
 
 def record_sample() -> str:
+    global manager, SAMPLE_QUEUE, OUTPUT_QUEUE, PENDING_LABELS, LABEL_COUNTS
     bottle.response.content_type = "application/json"
     data = bottle.request.json
 
@@ -71,6 +72,7 @@ def record_sample() -> str:
 
 
 def get_sample() -> str:
+    global manager, SAMPLE_QUEUE, OUTPUT_QUEUE, PENDING_LABELS, LABEL_COUNTS
     bottle.response.content_type = "application/json"
     data = bottle.request.json
 
@@ -141,6 +143,7 @@ def __data_loader_process(
     date_by_idx,
     sampling_mode,
 ) -> None:
+    global manager, SAMPLE_QUEUE, OUTPUT_QUEUE, PENDING_LABELS, LABEL_COUNTS
     """ """
 
     idxs = list(locations_by_idx.keys())
