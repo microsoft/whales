@@ -7,14 +7,21 @@ dependencies:
   - pip
   - pip:
     - bottle>=0.12
+    - fiona
+    - imageio
     - jupyter
     - mercantile>=1.2
+    - numpy
+    - opencv-python
+    - pandas
     - pyarrow>=15.0.0  # to silence warning from Pandas, can be removed after pandas 3.0
+    - pytz
+    - rasterio
     - requests
     - requests-auth>=0.6
-    - tensorboard>=2.14.1
+    - shapely
     - timezonefinder>=6.2
     - torch<2.1  # to account for driver support on my particular system, can be relaxed
     - torch-tb-profiler
-    - torchgeo[datasets,docs,style,tests]>=0.5.0
+    - tqdm
     - utm

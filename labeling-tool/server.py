@@ -8,7 +8,7 @@ import multiprocessing
 import os
 import time
 from collections import defaultdict
-from multiprocessing import Manager, Process
+from multiprocessing import Manager, Process, freeze_support
 from queue import Empty
 import pandas as pd
 
@@ -234,6 +234,8 @@ def __data_loader_process(
 
 
 def main():
+    freeze_support()
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",
