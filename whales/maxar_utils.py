@@ -110,10 +110,14 @@ def convert_maxar_til_to_reprojected_cog(fn, verbose=False):
 
     if verbose:
         print("Converting...")
-    projection_dict = {"proj": "utm", "zone": utm.latlon_to_zone_number(lat, lon)}
-    if lat < 0:
-        projection_dict["south"] = True
-    new_crs = rasterio.crs.CRS.from_dict(projection_dict)
+
+    if tmp_crs.is_projected:
+        new_crs = tmp_crs
+    else:
+        projection_dict = {"proj": "utm", "zone": utm.latlon_to_zone_number(lat, lon)}
+        if lat < 0:
+            projection_dict["south"] = True
+        new_crs = rasterio.crs.CRS.from_dict(projection_dict)
 
     command = [
         "gdalwarp",
