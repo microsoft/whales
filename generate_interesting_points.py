@@ -72,6 +72,11 @@ def set_up_parser():
         help="Threshold (in stdevs) for determining an interesting pixel",
     )
     parser.add_argument(
+        "--auto_difference_threshold",
+        action="store_true",
+        help="Set the difference_threshold automatically based on distribution of deviations"
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Flag to overwrite existing output",
@@ -194,9 +199,15 @@ def main(args):
     print(f"Note, the 99.95th percentile is {np.percentile(deviations, 99.95)}")
     print(f"Finished calculating deviations in {time.time() - tic} seconds\n")
 
+    if args.auto_difference_threshold:
+        difference_threshold = np.percentile(deviations, 99.95)
+    else:
+        difference_threshold = args.difference_threshold
+
+
     print("Computing connected features")
     tic = time.time()
-    thresholded_deviations = deviations > args.difference_threshold
+    thresholded_deviations = deviations > difference_threshold
     outputs = list(
         rasterio.features.shapes(
             thresholded_deviations.astype(np.uint8),
