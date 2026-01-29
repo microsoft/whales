@@ -22,7 +22,7 @@ def set_up_parser():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--input_url", required=True, type=str, help="URL of COG to process"
+        "--input_fn", required=True, type=str, help="URL of COG to process"
     )
     output_group = parser.add_mutually_exclusive_group(required=True)
     output_group.add_argument(
@@ -39,13 +39,17 @@ def set_up_parser():
         "--land_mask_fn",
         required=False,
         type=str,
-        help="Filename of a vector file that contains a land mask",
+        help="Path to a vector file containing a single polygon feature representing land areas "
+             "to exclude from processing. The land mask will be subtracted from the study area. "
+             "Can be in any CRS; will be reprojected to match the input raster if needed.",
     )
     parser.add_argument(
         "--study_area_fn",
         required=False,
         type=str,
-        help="Filename of a vector file that contains the study area",
+        help="Path to a vector file containing a single polygon feature defining the region of "
+             "interest to analyze. If not provided, the full extent of the input raster is used. "
+             "Can be in any CRS; will be reprojected to match the input raster if needed.",
     )
     parser.add_argument(
         "--method",
@@ -63,7 +67,7 @@ def set_up_parser():
         "--area_threshold",
         default=9 * 0.25,
         type=float,
-        help="Minimum size feature to keep",
+        help="Minimum size feature to keep (in map units, e.g., square meters if data is in a UTM projection)",
     )
     parser.add_argument(
         "--difference_threshold",
@@ -87,6 +91,14 @@ def set_up_parser():
         type=int,
         help="GPU to use (if available)",
     )
+    parser.add_argument(
+        "--bands",
+        required=False,
+        type=str,
+        default=None,
+        help="Comma-separated list of band indices (1-based) to use, e.g., '1,2,3' for RGB. "
+             "If not specified, all bands are used.",
+    )
 
     return parser
 
@@ -102,7 +114,7 @@ def main(args):
         os.makedirs(output_dir, exist_ok=False)
 
     if args.output_fn is None:
-        output_fn_part = os.path.basename(args.input_url)[:-4] + "-pt.geojson"
+        output_fn_part = os.path.basename(args.input_fn)[:-4] + "-pt.geojson"
         output_fn = os.path.join(output_dir, output_fn_part)
     else:
         if not args.output_fn.endswith(".geojson"):
@@ -122,7 +134,7 @@ def main(args):
         return
 
     if args.study_area_fn is not None and not os.path.exists(args.study_area_fn):
-        print(f"Land mask file '{args.land_mask_fn}' does not exist")
+        print(f"Study area file '{args.study_area_fn}' does not exist")
         return
 
     if args.method == "rolling_window" and args.gpu is None:
@@ -133,28 +145,51 @@ def main(args):
         print("GPU requested but CUDA is not available")
         return
 
+    if not os.path.exists(args.input_fn) and not args.input_fn.startswith(("http://", "https://", "s3://")):
+        print(f"Input file '{args.input_fn}' does not exist")
+        return
+
     print("Reading data")
     tic = time.time()
+    
+    # Parse band indices if specified
+    band_indices = None
+    if args.bands is not None:
+        try:
+            band_indices = [int(b.strip()) for b in args.bands.split(",")]
+        except ValueError:
+            print(f"Invalid bands specification '{args.bands}'. Expected comma-separated integers (1-based).")
+            return
+    
     if args.land_mask_fn is None and args.study_area_fn is None:
-        with rasterio.open(args.input_url) as f:
+        with rasterio.open(args.input_fn) as f:
             nodata = f.nodata
-            data = f.read()[:3, :, :]
+            if band_indices is not None:
+                data = f.read(band_indices)
+            else:
+                data = f.read()
             profile = f.profile
     else:
         land_mask = None
         study_area = None
         if args.land_mask_fn is not None:
             with fiona.open(args.land_mask_fn) as f:
-                assert len(f) == 1
-                land_mask_crs = f.crs["init"]
+                if len(f) != 1:
+                    print(f"Land mask file must contain exactly 1 feature (found {len(f)}). "
+                          "This file should contain a polygon representing land areas to exclude from processing.")
+                    return
+                land_mask_crs = f.crs.to_string().lower() if hasattr(f.crs, 'to_string') else f.crs.get("init", str(f.crs)).lower()
                 land_mask = next(iter(f))["geometry"]
         if args.study_area_fn is not None:
             with fiona.open(args.study_area_fn) as f:
-                assert len(f) == 1
-                study_area_crs = f.crs["init"]
+                if len(f) != 1:
+                    print(f"Study area file must contain exactly 1 feature (found {len(f)}). "
+                          "This file should contain a polygon defining the region of interest to analyze.")
+                    return
+                study_area_crs = f.crs.to_string().lower() if hasattr(f.crs, 'to_string') else f.crs.get("init", str(f.crs)).lower()
                 study_area = next(iter(f))["geometry"]
 
-        with rasterio.open(args.input_url) as f:
+        with rasterio.open(args.input_fn) as f:
             crs = f.crs.to_string().lower()
             nodata = f.nodata
             if study_area is None:
@@ -177,11 +212,12 @@ def main(args):
                     )
                 )
 
-            data, transform = rasterio.mask.mask(f, [geom], crop=True)
-            data = data[:3, :, :]
+            data, transform = rasterio.mask.mask(f, [geom], crop=True, indexes=band_indices)
             profile = f.profile
             profile["transform"] = transform
-    print(f"Finished loading data in {time.time() - tic} seconds\n")
+    
+    print(f"Loaded {data.shape[0]} bands with shape {data.shape[1:]}")
+    print(f"Finished loading data in {time.time() - tic:.2f} seconds\n")
 
     print("Calculating deviations")
     tic = time.time()
@@ -193,7 +229,7 @@ def main(args):
             data, device, 10000, 51
         )
     elif args.method == "gmm":
-        pass
+        raise NotImplementedError("GMM method is not yet implemented")
     deviations = np.absolute(deviations).sum(axis=0)
     deviations[np.isnan(deviations)] = 0
     print(f"Note, the 99.95th percentile is {np.percentile(deviations, 99.95)}")
@@ -204,10 +240,10 @@ def main(args):
     else:
         difference_threshold = args.difference_threshold
 
-
     print("Computing connected features")
     tic = time.time()
-    thresholded_deviations = deviations > difference_threshold
+
+    thresholded_deviations = (deviations > difference_threshold)
     outputs = list(
         rasterio.features.shapes(
             thresholded_deviations.astype(np.uint8),
@@ -217,28 +253,40 @@ def main(args):
         )
     )
 
-    # Calculate the mean deviation for each feature -- we do this with a memory file for speed
+    # Calculate the mean deviation for each feature and check for all-zero pixels
+    # We use memory files for speed
     all_vals = []
-    with rasterio.io.MemoryFile() as memfile:
-        t_profile = {
-            "driver": "GTiff",
-            "height": deviations.shape[0],
-            "width": deviations.shape[1],
-            "count": 1,
-            "dtype": deviations.dtype,
-            "crs": profile["crs"],
-            "transform": profile["transform"],
-        }
-        with memfile.open(**t_profile) as dataset:
+    has_zero_pixels = []
+    
+    base_profile = {
+        "driver": "GTiff",
+        "height": deviations.shape[0],
+        "width": deviations.shape[1],
+        "count": 1,
+        "crs": profile["crs"],
+        "transform": profile["transform"],
+    }
+    
+    with rasterio.io.MemoryFile() as dev_memfile, rasterio.open(args.input_fn) as src:
+        # Write deviations to memory file
+        dev_profile = {**base_profile, "dtype": deviations.dtype}
+        with dev_memfile.open(**dev_profile) as dataset:
             dataset.write(deviations, 1)
 
-        with memfile.open() as f:
+        with dev_memfile.open() as dev_f:
             for geom, val in tqdm(outputs):
                 if val == 1:
-                    data, _ = rasterio.mask.mask(f, [geom], crop=True)
-                    all_vals.append(float(data.mean()))
+                    feature_devs, _ = rasterio.mask.mask(dev_f, [geom], crop=True, filled=False)
+                    all_vals.append(float(feature_devs.mean()))
+
+                    # Check original imagery for all-zero pixels (only within the geometry)
+                    feature_data, _ = rasterio.mask.mask(src, [geom], crop=True, indexes=band_indices, filled=False)
+                    valid_mask = ~feature_data.mask[0]  # Pixels inside the geometry
+                    all_zeros = np.all(feature_data.data == 0, axis=0)
+                    has_zero_pixels.append(np.any(all_zeros & valid_mask))
                 else:
                     all_vals.append(float("inf"))
+                    has_zero_pixels.append(True)
     print(f"Found {len(outputs)} features in {time.time() - tic} seconds\n")
 
     print("Writing output")
@@ -249,6 +297,7 @@ def main(args):
     }
 
     count = 0
+    max_area = args.area_threshold * 5
     with fiona.open(
         output_fn,
         "w",
@@ -259,7 +308,7 @@ def main(args):
         for i, (geom, val) in enumerate(tqdm(outputs)):
             shape = shapely.geometry.shape(geom)
             area = shape.area
-            if val == 1 and area > args.area_threshold:
+            if val == 1 and area > args.area_threshold and area <= max_area and not has_zero_pixels[i]:
                 row = {
                     "type": "Feature",
                     "geometry": shapely.geometry.mapping(shape.centroid),
