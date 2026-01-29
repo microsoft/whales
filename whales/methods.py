@@ -125,8 +125,12 @@ def apply_chunked_standardization(data, step_size=1024, nodata=None):
                 means = np.mean(chunk, axis=(1, 2), dtype=np.float64, keepdims=True)
                 stdevs = np.std(chunk, axis=(1, 2), dtype=np.float64, keepdims=True)
 
+            # Skip chunks where all bands have zero stdev (e.g., all nodata)
             if np.all(stdevs == 0):
                 continue
+
+            # Avoid division by zero for individual bands with zero stdev
+            stdevs = np.where(stdevs == 0, 1, stdevs)
 
             deviations[:, y : y + step_size, x : x + step_size] = (
                 chunk - means
