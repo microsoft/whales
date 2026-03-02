@@ -99,6 +99,12 @@ def set_up_parser():
         help="Comma-separated list of band indices (1-based) to use, e.g., '1,2,3' for RGB. "
              "If not specified, all bands are used.",
     )
+    parser.add_argument(
+        "--return-full-shapes",
+        action="store_true",
+        help="Output full polygon shapes with deviation statistics (mean, max, std) instead of "
+             "centroid points with mean deviation only",
+    )
 
     return parser
 
@@ -297,16 +303,22 @@ def main(args):
 
     print("Writing output")
     tic = time.time()
-    schema = {
-        "geometry": "Polygon",
-        "properties": {
-            "id": "int",
-            "area": "float",
-            "deviation_mean": "float",
-            "deviation_max": "float",
-            "deviation_std": "float",
-        },
-    }
+    if args.return_full_shapes:
+        schema = {
+            "geometry": "Polygon",
+            "properties": {
+                "id": "int",
+                "area": "float",
+                "deviation_mean": "float",
+                "deviation_max": "float",
+                "deviation_std": "float",
+            },
+        }
+    else:
+        schema = {
+            "geometry": "Point",
+            "properties": {"id": "int", "area": "float", "deviation": "float"},
+        }
 
     count = 0
     max_area = args.area_threshold * 5
@@ -321,17 +333,28 @@ def main(args):
             shape = shapely.geometry.shape(geom)
             area = shape.area
             if val == 1 and area > args.area_threshold and area <= max_area and not has_zero_pixels[i]:
-                row = {
-                    "type": "Feature",
-                    "geometry": shapely.geometry.mapping(shape),
-                    "properties": {
-                        "id": i,
-                        "area": area,
-                        "deviation_mean": all_means[i],
-                        "deviation_max": all_maxes[i],
-                        "deviation_std": all_stds[i],
-                    },
-                }
+                if args.return_full_shapes:
+                    row = {
+                        "type": "Feature",
+                        "geometry": shapely.geometry.mapping(shape),
+                        "properties": {
+                            "id": i,
+                            "area": area,
+                            "deviation_mean": all_means[i],
+                            "deviation_max": all_maxes[i],
+                            "deviation_std": all_stds[i],
+                        },
+                    }
+                else:
+                    row = {
+                        "type": "Feature",
+                        "geometry": shapely.geometry.mapping(shape.centroid),
+                        "properties": {
+                            "id": i,
+                            "area": area,
+                            "deviation": all_means[i],
+                        },
+                    }
                 f.write(row)
                 count += 1
 
