@@ -253,9 +253,11 @@ def main(args):
         )
     )
 
-    # Calculate the mean deviation for each feature and check for all-zero pixels
+    # Calculate deviation statistics for each feature and check for all-zero pixels
     # We use memory files for speed
-    all_vals = []
+    all_means = []
+    all_maxes = []
+    all_stds = []
     has_zero_pixels = []
     
     base_profile = {
@@ -277,7 +279,9 @@ def main(args):
             for geom, val in tqdm(outputs):
                 if val == 1:
                     feature_devs, _ = rasterio.mask.mask(dev_f, [geom], crop=True, filled=False)
-                    all_vals.append(float(feature_devs.mean()))
+                    all_means.append(float(feature_devs.mean()))
+                    all_maxes.append(float(feature_devs.max()))
+                    all_stds.append(float(feature_devs.std()))
 
                     # Check original imagery for all-zero pixels (only within the geometry)
                     feature_data, _ = rasterio.mask.mask(src, [geom], crop=True, indexes=band_indices, filled=False)
@@ -285,15 +289,23 @@ def main(args):
                     all_zeros = np.all(feature_data.data == 0, axis=0)
                     has_zero_pixels.append(np.any(all_zeros & valid_mask))
                 else:
-                    all_vals.append(float("inf"))
+                    all_means.append(float("inf"))
+                    all_maxes.append(float("inf"))
+                    all_stds.append(float("inf"))
                     has_zero_pixels.append(True)
     print(f"Found {len(outputs)} features in {time.time() - tic} seconds\n")
 
     print("Writing output")
     tic = time.time()
     schema = {
-        "geometry": "Point",
-        "properties": {"id": "int", "area": "float", "deviation": "float"},
+        "geometry": "Polygon",
+        "properties": {
+            "id": "int",
+            "area": "float",
+            "deviation_mean": "float",
+            "deviation_max": "float",
+            "deviation_std": "float",
+        },
     }
 
     count = 0
@@ -311,11 +323,13 @@ def main(args):
             if val == 1 and area > args.area_threshold and area <= max_area and not has_zero_pixels[i]:
                 row = {
                     "type": "Feature",
-                    "geometry": shapely.geometry.mapping(shape.centroid),
+                    "geometry": shapely.geometry.mapping(shape),
                     "properties": {
                         "id": i,
                         "area": area,
-                        "deviation": all_vals[i],
+                        "deviation_mean": all_means[i],
+                        "deviation_max": all_maxes[i],
+                        "deviation_std": all_stds[i],
                     },
                 }
                 f.write(row)
