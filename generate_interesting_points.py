@@ -99,6 +99,12 @@ def set_up_parser():
         help="Comma-separated list of band indices (1-based) to use, e.g., '1,2,3' for RGB. "
              "If not specified, all bands are used.",
     )
+    parser.add_argument(
+        "--return-full-shapes",
+        action="store_true",
+        help="Output full polygon shapes with deviation statistics (mean, max, std) instead of "
+             "centroid points with mean deviation only",
+    )
 
     return parser
 
@@ -253,9 +259,11 @@ def main(args):
         )
     )
 
-    # Calculate the mean deviation for each feature and check for all-zero pixels
+    # Calculate deviation statistics for each feature and check for all-zero pixels
     # We use memory files for speed
-    all_vals = []
+    all_means = []
+    all_maxes = []
+    all_stds = []
     has_zero_pixels = []
     
     base_profile = {
@@ -277,7 +285,9 @@ def main(args):
             for geom, val in tqdm(outputs):
                 if val == 1:
                     feature_devs, _ = rasterio.mask.mask(dev_f, [geom], crop=True, filled=False)
-                    all_vals.append(float(feature_devs.mean()))
+                    all_means.append(float(feature_devs.mean()))
+                    all_maxes.append(float(feature_devs.max()))
+                    all_stds.append(float(feature_devs.std()))
 
                     # Check original imagery for all-zero pixels (only within the geometry)
                     feature_data, _ = rasterio.mask.mask(src, [geom], crop=True, indexes=band_indices, filled=False)
@@ -285,16 +295,30 @@ def main(args):
                     all_zeros = np.all(feature_data.data == 0, axis=0)
                     has_zero_pixels.append(np.any(all_zeros & valid_mask))
                 else:
-                    all_vals.append(float("inf"))
+                    all_means.append(float("inf"))
+                    all_maxes.append(float("inf"))
+                    all_stds.append(float("inf"))
                     has_zero_pixels.append(True)
     print(f"Found {len(outputs)} features in {time.time() - tic} seconds\n")
 
     print("Writing output")
     tic = time.time()
-    schema = {
-        "geometry": "Point",
-        "properties": {"id": "int", "area": "float", "deviation": "float"},
-    }
+    if args.return_full_shapes:
+        schema = {
+            "geometry": "Polygon",
+            "properties": {
+                "id": "int",
+                "area": "float",
+                "deviation_mean": "float",
+                "deviation_max": "float",
+                "deviation_std": "float",
+            },
+        }
+    else:
+        schema = {
+            "geometry": "Point",
+            "properties": {"id": "int", "area": "float", "deviation": "float"},
+        }
 
     count = 0
     max_area = args.area_threshold * 5
@@ -309,15 +333,28 @@ def main(args):
             shape = shapely.geometry.shape(geom)
             area = shape.area
             if val == 1 and area > args.area_threshold and area <= max_area and not has_zero_pixels[i]:
-                row = {
-                    "type": "Feature",
-                    "geometry": shapely.geometry.mapping(shape.centroid),
-                    "properties": {
-                        "id": i,
-                        "area": area,
-                        "deviation": all_vals[i],
-                    },
-                }
+                if args.return_full_shapes:
+                    row = {
+                        "type": "Feature",
+                        "geometry": shapely.geometry.mapping(shape),
+                        "properties": {
+                            "id": i,
+                            "area": area,
+                            "deviation_mean": all_means[i],
+                            "deviation_max": all_maxes[i],
+                            "deviation_std": all_stds[i],
+                        },
+                    }
+                else:
+                    row = {
+                        "type": "Feature",
+                        "geometry": shapely.geometry.mapping(shape.centroid),
+                        "properties": {
+                            "id": i,
+                            "area": area,
+                            "deviation": all_means[i],
+                        },
+                    }
                 f.write(row)
                 count += 1
 
