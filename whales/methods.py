@@ -136,6 +136,14 @@ def apply_chunked_standardization(data, step_size=1024, nodata=None):
                 chunk - means
             ) / stdevs
 
+            # set nodata source pixels to deviation=0 since `data` array includes nodata as a value
+            if nodata is not None:
+                deviations[:, y : y + step_size, x : x + step_size] = np.where(
+                    chunk != nodata,
+                    deviations[:, y : y + step_size, x : x + step_size],
+                    0
+                )
+
     return deviations
 
 
