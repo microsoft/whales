@@ -78,7 +78,7 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size):
                 .unsqueeze(0)
                 .to(device)
             )
-            p_output = model(p_input).cpu().numpy().squeeze()
+            p_output = model(p_input).cpu().numpy().squeeze(axis=0)
 
             # This is all split up because I'm pretty sure that you need to slice differently for the edges of the input, but I haven't worked that out
             if i == 0:
