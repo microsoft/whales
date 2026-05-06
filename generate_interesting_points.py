@@ -64,6 +64,12 @@ def set_up_parser():
         help="Window size to use for the `big_window` method",
     )
     parser.add_argument(
+        "--rolling_window_size",
+        default=51,
+        type=int,
+        help="Kernel size to use for the `rolling_window` method",
+    )
+    parser.add_argument(
         "--area_threshold",
         default=9 * 0.25,
         type=float,
@@ -244,7 +250,7 @@ def main(args):
     elif args.method == "rolling_window":
         device = torch.device(f"cuda:{args.gpu}")
         deviations = whales.methods.apply_rolling_standardization(
-            data, device, 10000, 51, nodata=nodata
+            data, device, 10000, args.rolling_window_size, nodata=nodata
         )
     elif args.method == "gmm":
         raise NotImplementedError("GMM method is not yet implemented")
