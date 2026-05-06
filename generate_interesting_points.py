@@ -244,7 +244,7 @@ def main(args):
     elif args.method == "rolling_window":
         device = torch.device(f"cuda:{args.gpu}")
         deviations = whales.methods.apply_rolling_standardization(
-            data, device, 10000, 51
+            data, device, 10000, 51, nodata=nodata
         )
     elif args.method == "gmm":
         raise NotImplementedError("GMM method is not yet implemented")
