@@ -46,15 +46,26 @@ class LocalContextStandardization(Module):
         return (x - mu) / (torch.sqrt(variance) + 1e-8)
 
 
-def apply_rolling_standardization(data, device, patch_size, kernel_size):
+def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=None):
     """A helper function for running a LocalContextStandardization model on an
     input that is too large to fit in GPU memory.
     """
     num_channels, height, width = data.shape
-
     half_kernel = kernel_size // 2
+
+    if nodata is not None:
+        valid_mask = data != nodata
+        mean_val = data.mean(axis=(1, 2), keepdims=True, where=valid_mask).astype(
+            np.float32
+        )
+        clean_data = np.where(~valid_mask, mean_val, data)
+
+    else:
+        mean_val = data.mean(axis=(1, 2), keepdims=True).astype(np.float32)
+        clean_data = data
+
     shift_val = (
-        torch.from_numpy(data.mean(axis=(1, 2), keepdims=True).astype(np.float32))
+        torch.from_numpy(mean_val.astype(np.float32))
         .unsqueeze(0)
         .to(device)
     )
@@ -73,12 +84,12 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size):
         for j, x in enumerate(x_options):
             p_input = (
                 torch.from_numpy(
-                    data[:, y : y + patch_size, x : x + patch_size].astype(np.float32)
+                    clean_data[:, y : y + patch_size, x : x + patch_size].astype(np.float32)
                 )
                 .unsqueeze(0)
                 .to(device)
             )
-            p_output = model(p_input).cpu().numpy().squeeze()
+            p_output = model(p_input).cpu().numpy().squeeze(axis=0)
 
             # This is all split up because I'm pretty sure that you need to slice differently for the edges of the input, but I haven't worked that out
             if i == 0:
@@ -106,6 +117,9 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size):
                     y + half_kernel : y + patch_size - half_kernel,
                     x + half_kernel : x + patch_size - half_kernel,
                 ] = p_output[:, half_kernel:-half_kernel, half_kernel:-half_kernel]
+
+    if nodata is not None:
+        output[~valid_mask] = 0
 
     return output
 
@@ -135,6 +149,14 @@ def apply_chunked_standardization(data, step_size=1024, nodata=None):
             deviations[:, y : y + step_size, x : x + step_size] = (
                 chunk - means
             ) / stdevs
+
+            # set nodata source pixels to deviation=0 since `data` array includes nodata as a value
+            if nodata is not None:
+                deviations[:, y : y + step_size, x : x + step_size] = np.where(
+                    chunk != nodata,
+                    deviations[:, y : y + step_size, x : x + step_size],
+                    0
+                )
 
     return deviations
 

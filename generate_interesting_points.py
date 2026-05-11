@@ -64,10 +64,21 @@ def set_up_parser():
         help="Window size to use for the `big_window` method",
     )
     parser.add_argument(
+        "--rolling_window_size",
+        default=51,
+        type=int,
+        help="Kernel size to use for the `rolling_window` method",
+    )
+    parser.add_argument(
         "--area_threshold",
         default=9 * 0.25,
         type=float,
         help="Minimum size feature to keep (in map units, e.g., square meters if data is in a UTM projection)",
+    )
+    parser.add_argument(
+        "--max_area_threshold",
+        type=float,
+        help="Maximum size feature to keep in map units (default: 5 * area_threshold)",
     )
     parser.add_argument(
         "--difference_threshold",
@@ -104,6 +115,12 @@ def set_up_parser():
         action="store_true",
         help="Output full polygon shapes with deviation statistics (mean, max, std) instead of "
              "centroid points with mean deviation only",
+    )
+    parser.add_argument(
+        "--write-deviation-raster",
+        action="store_true",
+        help="Write out the deviation values in raster fom before aggregating into shapes "
+            "(for debugging thresholds only)",
     )
 
     return parser
@@ -170,6 +187,7 @@ def main(args):
     if args.land_mask_fn is None and args.study_area_fn is None:
         with rasterio.open(args.input_fn) as f:
             nodata = f.nodata
+            print(f'Nodata value: {nodata}')
             if band_indices is not None:
                 data = f.read(band_indices)
             else:
@@ -232,7 +250,7 @@ def main(args):
     elif args.method == "rolling_window":
         device = torch.device(f"cuda:{args.gpu}")
         deviations = whales.methods.apply_rolling_standardization(
-            data, device, 10000, 51
+            data, device, 10000, args.rolling_window_size, nodata=nodata
         )
     elif args.method == "gmm":
         raise NotImplementedError("GMM method is not yet implemented")
@@ -281,6 +299,13 @@ def main(args):
         with dev_memfile.open(**dev_profile) as dataset:
             dataset.write(deviations, 1)
 
+        if args.write_deviation_raster:
+            # Write deviations to disk for debugging/inspection
+            output_deviations_fn = output_fn.replace(".geojson", "_deviations.tif")
+            with rasterio.open(output_deviations_fn, "w", **dev_profile) as dst:
+                dst.write(deviations, 1)
+            print(f"Wrote deviations to {output_deviations_fn}")
+
         with dev_memfile.open() as dev_f:
             for geom, val in tqdm(outputs):
                 if val == 1:
@@ -321,7 +346,7 @@ def main(args):
         }
 
     count = 0
-    max_area = args.area_threshold * 5
+    max_area = args.area_threshold * 5 if args.max_area_threshold is None else args.max_area_threshold
     with fiona.open(
         output_fn,
         "w",

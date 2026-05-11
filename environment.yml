@@ -11,7 +11,7 @@ dependencies:
     - imageio
     - jupyter
     - mercantile>=1.2
-    - numpy
+    - numpy<2 # to match the torch version now that numpy 2 came out
     - opencv-python
     - pandas
     - pyarrow>=15.0.0  # to silence warning from Pandas, can be removed after pandas 3.0
