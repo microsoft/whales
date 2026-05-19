@@ -13,6 +13,7 @@ import rasterio.io
 import rasterio.mask
 import shapely.geometry
 import torch
+from rasterio.enums import Resampling
 from tqdm import tqdm
 
 import whales.methods
@@ -298,10 +299,13 @@ def main(args):
             dataset.write(deviations, 1)
 
         if args.write_deviation_raster:
-            # Write deviations to disk for debugging/inspection
+            # Write deviations with overviews to disk for debugging/inspection
             output_deviations_fn = output_fn.replace(".geojson", "_deviations.tif")
-            with rasterio.open(output_deviations_fn, "w", **dev_profile) as dst:
+            with rasterio.open(output_deviations_fn, "w", **dev_profile, compress="LZW",
+                               tiled=True, blockxsize=256, blockysize=256, bigtiff="YES") as dst:
                 dst.write(deviations, 1)
+                dst.build_overviews([2, 4, 8, 16], Resampling.nearest)
+                dst.update_tags(ns="rio_overview", resampling="nearest")
             print(f"Wrote deviations to {output_deviations_fn}")
 
         with dev_memfile.open() as dev_f:
