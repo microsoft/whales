@@ -73,7 +73,7 @@ def set_up_parser():
     )
     parser.add_argument(
         "--min_stdev",
-        default=1,
+        default=None,
         type=int,
         help="Minimum standard deviation to use as the denominator for the 'rolling_window' and 'big_window' methods "
              "(reduces anomalous high deviation scores in areas of low variance)",

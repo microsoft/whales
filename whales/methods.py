@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 
 class LocalContextStandardization(Module):
-    def __init__(self, in_channels: int = 3, kernel_size: int = 9, shift_val=None, min_stdev=1):
+    def __init__(self, in_channels: int = 3, kernel_size: int = 9, shift_val=None, min_stdev=None):
         super().__init__()
 
         self.shift_val = shift_val
@@ -43,14 +43,17 @@ class LocalContextStandardization(Module):
             x = x - x.mean(dim=(0, 2, 3), keepdim=True)
         mu = self.conv(x)
         squares = self.conv(x**2.0)
-        variance = torch.clamp(squares - mu**2.0, min=0.0) # Calculate raw variance and clamp to 0.0 to prevent floating-point NaNs
-        stdev = torch.sqrt(variance)
-        stdev = torch.clamp(stdev, min=self.min_stdev)  # Clamp the standard deviation to a realistic physical baseline
+        variance = torch.clamp(squares - mu**2.0, min=0.0)  # Calculate raw variance and clamp to 0.0 to prevent floating-point NaNs
+        if self.min_stdev:
+            stdev = torch.sqrt(variance)
+            stdev = torch.clamp(stdev, min=self.min_stdev) # Clamp the standard deviation to a realistic physical baseline
+        else:
+            stdev = (torch.sqrt(variance) + 1e-8)
 
         return (x - mu) / stdev
 
 
-def apply_rolling_standardization(data, device, patch_size, kernel_size, min_stdev=1, nodata=None):
+def apply_rolling_standardization(data, device, patch_size, kernel_size, min_stdev=None, nodata=None):
     """A helper function for running a LocalContextStandardization model on an
     input that is too large to fit in GPU memory.
     """
@@ -120,7 +123,7 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, min_std
     return output
 
 
-def apply_chunked_standardization(data, step_size=1024, min_stdev=1 ,nodata=None):
+def apply_chunked_standardization(data, step_size=1024, min_stdev=None ,nodata=None):
     num_channels, height, width = data.shape
     deviations = np.zeros((num_channels, height, width), dtype=np.float32)
     for y in tqdm(range(0, height, step_size)):
@@ -140,7 +143,10 @@ def apply_chunked_standardization(data, step_size=1024, min_stdev=1 ,nodata=None
                 continue
 
             # Avoid division by zero for individual bands with zero stdev
-            stdevs = np.where(stdevs == 0, min_stdev, stdevs)
+            if not min_stdev:
+                stdevs = np.where(stdevs == 0, 1, stdevs)
+            else:
+                stdevs = np.where(stdevs < min_stdev, min_stdev, stdevs)
 
             deviations[:, y : y + step_size, x : x + step_size] = (
                 chunk - means
