@@ -80,8 +80,6 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
 
     y_options = list(range(0, height, patch_size - kernel_size))
     x_options = list(range(0, width, patch_size - kernel_size))
-    num_y = len(y_options)
-    num_x = len(x_options)
 
     output = np.zeros((num_channels, height, width), dtype=np.float32)
     for i, y in enumerate(tqdm(y_options)):
@@ -95,32 +93,26 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
             )
             p_output = model(p_input).cpu().numpy().squeeze(axis=0)
 
-            # This is all split up because I'm pretty sure that you need to slice differently for the edges of the input, but I haven't worked that out
-            if i == 0:
-                if j == 0:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                elif j == num_x - 1:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                else:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-            elif j == 0:
-                if i == num_y - 1:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                else:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-            elif i == num_y - 1:
-                if j == num_x - 1:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                else:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-            elif j == num_x - 1:
-                output[:, y : y + patch_size, x : x + patch_size] = p_output
-            else:
-                output[
-                    :,
-                    y + half_kernel : y + patch_size - half_kernel,
-                    x + half_kernel : x + patch_size - half_kernel,
-                ] = p_output[:, half_kernel:-half_kernel, half_kernel:-half_kernel]
+            # Edge-slicing logic
+            y1_in, y2_in = y, min(y + patch_size, height)
+            x1_in, x2_in = x, min(x + patch_size, width)
+            # Define output coordinates (where to write in the giant array)
+            # Crop the half_kernel unless we are touching the absolute image boundary
+            y1_out = y1_in if y1_in == 0 else y1_in + half_kernel
+            y2_out = y2_in if y2_in == height else y2_in - half_kernel
+            x1_out = x1_in if x1_in == 0 else x1_in + half_kernel
+            x2_out = x2_in if x2_in == width else x2_in - half_kernel
+
+            # Define read coordinates (what part of the patch to keep)
+            y1_read = 0 if y1_in == 0 else half_kernel
+            y2_read = ((y2_in - y1_in) if y2_in == height else (y2_in - y1_in) - half_kernel)
+            x1_read = 0 if x1_in == 0 else half_kernel
+            x2_read = ((x2_in - x1_in) if x2_in == width else (x2_in - x1_in) - half_kernel)
+
+            # Write the valid data
+            output[:, y1_out:y2_out, x1_out:x2_out] = p_output[
+                :, y1_read:y2_read, x1_read:x2_read
+            ]
 
     if nodata is not None:
         output[~valid_mask] = 0
