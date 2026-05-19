@@ -72,6 +72,13 @@ def set_up_parser():
         help="Kernel size to use for the `rolling_window` method",
     )
     parser.add_argument(
+        "--min_stdev",
+        default=1,
+        type=int,
+        help="Minimum standard deviation to use as the denominator for the 'rolling_window' and 'big_window' methods "
+             "(reduces anomalous high deviation scores in areas of low variance)",
+    )
+    parser.add_argument(
         "--area_threshold",
         default=9 * 0.25,
         type=float,
@@ -240,7 +247,7 @@ def main(args):
     print("Calculating deviations")
     tic = time.time()
     if args.method == "big_window":
-        deviations = whales.methods.apply_chunked_standardization(data, args.big_window_size, nodata=nodata)
+        deviations = whales.methods.apply_chunked_standardization(data, args.big_window_size, min_stdev=args.min_stdev, nodata=nodata)
     elif args.method == "rolling_window":
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{args.gpu}")
@@ -249,7 +256,7 @@ def main(args):
             device = torch.device("cpu")
             print("No GPU detected. Falling back to CPU.")
         deviations = whales.methods.apply_rolling_standardization(
-            data, device, 10000, args.rolling_window_size, nodata=nodata
+            data, device, 10000, args.rolling_window_size, min_stdev=args.min_stdev, nodata=nodata
         )
     elif args.method == "gmm":
         raise NotImplementedError("GMM method is not yet implemented")

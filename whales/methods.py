@@ -8,11 +8,11 @@ from tqdm import tqdm
 
 
 class LocalContextStandardization(Module):
-    def __init__(self, in_channels: int = 3, kernel_size: int = 9, shift_val=None):
+    def __init__(self, in_channels: int = 3, kernel_size: int = 9, shift_val=None, min_stdev=1):
         super().__init__()
 
         self.shift_val = shift_val
-        self.min_stdev = 5  # A realistic minimum stdev for 0-2000 scaled TOA Maxar imagery
+        self.min_stdev = min_stdev
 
         weights = torch.nn.Parameter(
             torch.zeros(
@@ -50,7 +50,7 @@ class LocalContextStandardization(Module):
         return (x - mu) / stdev
 
 
-def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=None):
+def apply_rolling_standardization(data, device, patch_size, kernel_size, min_stdev=1, nodata=None):
     """A helper function for running a LocalContextStandardization model on an
     input that is too large to fit in GPU memory.
     """
@@ -75,7 +75,7 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
     )
 
     model = LocalContextStandardization(
-        num_channels, kernel_size=kernel_size, shift_val=shift_val
+        num_channels, kernel_size=kernel_size, shift_val=shift_val, min_stdev=min_stdev
     ).to(device)
 
     y_options = list(range(0, height, patch_size - kernel_size))
@@ -120,7 +120,7 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
     return output
 
 
-def apply_chunked_standardization(data, step_size=1024, nodata=None):
+def apply_chunked_standardization(data, step_size=1024, min_stdev=1 ,nodata=None):
     num_channels, height, width = data.shape
     deviations = np.zeros((num_channels, height, width), dtype=np.float32)
     for y in tqdm(range(0, height, step_size)):
@@ -140,7 +140,7 @@ def apply_chunked_standardization(data, step_size=1024, nodata=None):
                 continue
 
             # Avoid division by zero for individual bands with zero stdev
-            stdevs = np.where(stdevs == 0, 1, stdevs)
+            stdevs = np.where(stdevs == 0, min_stdev, stdevs)
 
             deviations[:, y : y + step_size, x : x + step_size] = (
                 chunk - means
