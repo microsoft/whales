@@ -12,6 +12,7 @@ class LocalContextStandardization(Module):
         super().__init__()
 
         self.shift_val = shift_val
+        self.min_stdev = 5  # A realistic minimum stdev for 0-2000 scaled TOA Maxar imagery
 
         weights = torch.nn.Parameter(
             torch.zeros(
@@ -42,8 +43,11 @@ class LocalContextStandardization(Module):
             x = x - x.mean(dim=(0, 2, 3), keepdim=True)
         mu = self.conv(x)
         squares = self.conv(x**2.0)
-        variance = squares - mu**2.0
-        return (x - mu) / (torch.sqrt(variance) + 1e-8)
+        variance = torch.clamp(squares - mu**2.0, min=0.0) # Calculate raw variance and clamp to 0.0 to prevent floating-point NaNs
+        stdev = torch.sqrt(variance)
+        stdev = torch.clamp(stdev, min=self.min_stdev)  # Clamp the standard deviation to a realistic physical baseline
+
+        return (x - mu) / stdev
 
 
 def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=None):
