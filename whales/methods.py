@@ -8,10 +8,11 @@ from tqdm import tqdm
 
 
 class LocalContextStandardization(Module):
-    def __init__(self, in_channels: int = 3, kernel_size: int = 9, shift_val=None):
+    def __init__(self, in_channels: int = 3, kernel_size: int = 9, shift_val=None, min_stdev=None):
         super().__init__()
 
         self.shift_val = shift_val
+        self.min_stdev = min_stdev
 
         weights = torch.nn.Parameter(
             torch.zeros(
@@ -42,11 +43,17 @@ class LocalContextStandardization(Module):
             x = x - x.mean(dim=(0, 2, 3), keepdim=True)
         mu = self.conv(x)
         squares = self.conv(x**2.0)
-        variance = squares - mu**2.0
-        return (x - mu) / (torch.sqrt(variance) + 1e-8)
+        variance = torch.clamp(squares - mu**2.0, min=0.0)  # Calculate raw variance and clamp to 0.0 to prevent floating-point NaNs
+        if self.min_stdev:
+            stdev = torch.sqrt(variance)
+            stdev = torch.clamp(stdev, min=self.min_stdev) # Clamp the standard deviation to a realistic physical baseline
+        else:
+            stdev = (torch.sqrt(variance) + 1e-8)
+
+        return (x - mu) / stdev
 
 
-def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=None):
+def apply_rolling_standardization(data, device, patch_size, kernel_size, min_stdev=None, nodata=None):
     """A helper function for running a LocalContextStandardization model on an
     input that is too large to fit in GPU memory.
     """
@@ -71,13 +78,11 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
     )
 
     model = LocalContextStandardization(
-        num_channels, kernel_size=kernel_size, shift_val=shift_val
+        num_channels, kernel_size=kernel_size, shift_val=shift_val, min_stdev=min_stdev
     ).to(device)
 
     y_options = list(range(0, height, patch_size - kernel_size))
     x_options = list(range(0, width, patch_size - kernel_size))
-    num_y = len(y_options)
-    num_x = len(x_options)
 
     output = np.zeros((num_channels, height, width), dtype=np.float32)
     for i, y in enumerate(tqdm(y_options)):
@@ -91,32 +96,26 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
             )
             p_output = model(p_input).cpu().numpy().squeeze(axis=0)
 
-            # This is all split up because I'm pretty sure that you need to slice differently for the edges of the input, but I haven't worked that out
-            if i == 0:
-                if j == 0:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                elif j == num_x - 1:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                else:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-            elif j == 0:
-                if i == num_y - 1:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                else:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-            elif i == num_y - 1:
-                if j == num_x - 1:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-                else:
-                    output[:, y : y + patch_size, x : x + patch_size] = p_output
-            elif j == num_x - 1:
-                output[:, y : y + patch_size, x : x + patch_size] = p_output
-            else:
-                output[
-                    :,
-                    y + half_kernel : y + patch_size - half_kernel,
-                    x + half_kernel : x + patch_size - half_kernel,
-                ] = p_output[:, half_kernel:-half_kernel, half_kernel:-half_kernel]
+            # Edge-slicing logic
+            y1_in, y2_in = y, min(y + patch_size, height)
+            x1_in, x2_in = x, min(x + patch_size, width)
+            # Define output coordinates (where to write in the giant array)
+            # Crop the half_kernel unless we are touching the absolute image boundary
+            y1_out = y1_in if y1_in == 0 else y1_in + half_kernel
+            y2_out = y2_in if y2_in == height else y2_in - half_kernel
+            x1_out = x1_in if x1_in == 0 else x1_in + half_kernel
+            x2_out = x2_in if x2_in == width else x2_in - half_kernel
+
+            # Define read coordinates (what part of the patch to keep)
+            y1_read = 0 if y1_in == 0 else half_kernel
+            y2_read = ((y2_in - y1_in) if y2_in == height else (y2_in - y1_in) - half_kernel)
+            x1_read = 0 if x1_in == 0 else half_kernel
+            x2_read = ((x2_in - x1_in) if x2_in == width else (x2_in - x1_in) - half_kernel)
+
+            # Write the valid data
+            output[:, y1_out:y2_out, x1_out:x2_out] = p_output[
+                :, y1_read:y2_read, x1_read:x2_read
+            ]
 
     if nodata is not None:
         output[~valid_mask] = 0
@@ -124,7 +123,7 @@ def apply_rolling_standardization(data, device, patch_size, kernel_size, nodata=
     return output
 
 
-def apply_chunked_standardization(data, step_size=1024, nodata=None):
+def apply_chunked_standardization(data, step_size=1024, min_stdev=None ,nodata=None):
     num_channels, height, width = data.shape
     deviations = np.zeros((num_channels, height, width), dtype=np.float32)
     for y in tqdm(range(0, height, step_size)):
@@ -144,7 +143,10 @@ def apply_chunked_standardization(data, step_size=1024, nodata=None):
                 continue
 
             # Avoid division by zero for individual bands with zero stdev
-            stdevs = np.where(stdevs == 0, 1, stdevs)
+            if not min_stdev:
+                stdevs = np.where(stdevs == 0, 1, stdevs)
+            else:
+                stdevs = np.where(stdevs < min_stdev, min_stdev, stdevs)
 
             deviations[:, y : y + step_size, x : x + step_size] = (
                 chunk - means

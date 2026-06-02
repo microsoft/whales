@@ -13,10 +13,12 @@ import rasterio.io
 import rasterio.mask
 import shapely.geometry
 import torch
+from rasterio.enums import Resampling
 from tqdm import tqdm
 
 import whales.methods
 
+torch.set_num_threads(os.cpu_count())
 
 def set_up_parser():
     parser = argparse.ArgumentParser()
@@ -68,6 +70,13 @@ def set_up_parser():
         default=51,
         type=int,
         help="Kernel size to use for the `rolling_window` method",
+    )
+    parser.add_argument(
+        "--min_stdev",
+        default=None,
+        type=int,
+        help="Minimum standard deviation to use as the denominator for the 'rolling_window' and 'big_window' methods "
+             "(reduces anomalous high deviation scores in areas of low variance)",
     )
     parser.add_argument(
         "--area_threshold",
@@ -160,14 +169,6 @@ def main(args):
         print(f"Study area file '{args.study_area_fn}' does not exist")
         return
 
-    if args.method == "rolling_window" and args.gpu is None:
-        print("GPU is required for rolling window method")
-        return
-
-    if args.gpu is not None and not torch.cuda.is_available():
-        print("GPU requested but CUDA is not available")
-        return
-
     if not os.path.exists(args.input_fn) and not args.input_fn.startswith(("http://", "https://", "s3://")):
         print(f"Input file '{args.input_fn}' does not exist")
         return
@@ -246,11 +247,16 @@ def main(args):
     print("Calculating deviations")
     tic = time.time()
     if args.method == "big_window":
-        deviations = whales.methods.apply_chunked_standardization(data, args.big_window_size, nodata=nodata)
+        deviations = whales.methods.apply_chunked_standardization(data, args.big_window_size, min_stdev=args.min_stdev, nodata=nodata)
     elif args.method == "rolling_window":
-        device = torch.device(f"cuda:{args.gpu}")
+        if torch.cuda.is_available():
+            device = torch.device(f"cuda:{args.gpu}")
+            print(f"GPU found. Running on {device}.")
+        else:
+            device = torch.device("cpu")
+            print("No GPU detected. Falling back to CPU.")
         deviations = whales.methods.apply_rolling_standardization(
-            data, device, 10000, args.rolling_window_size, nodata=nodata
+            data, device, 10000, args.rolling_window_size, min_stdev=args.min_stdev, nodata=nodata
         )
     elif args.method == "gmm":
         raise NotImplementedError("GMM method is not yet implemented")
@@ -300,10 +306,13 @@ def main(args):
             dataset.write(deviations, 1)
 
         if args.write_deviation_raster:
-            # Write deviations to disk for debugging/inspection
+            # Write deviations with overviews to disk for debugging/inspection
             output_deviations_fn = output_fn.replace(".geojson", "_deviations.tif")
-            with rasterio.open(output_deviations_fn, "w", **dev_profile) as dst:
+            with rasterio.open(output_deviations_fn, "w", **dev_profile, compress="LZW",
+                               tiled=True, blockxsize=256, blockysize=256, bigtiff="YES") as dst:
                 dst.write(deviations, 1)
+                dst.build_overviews([2, 4, 8, 16], Resampling.nearest)
+                dst.update_tags(ns="rio_overview", resampling="nearest")
             print(f"Wrote deviations to {output_deviations_fn}")
 
         with dev_memfile.open() as dev_f:

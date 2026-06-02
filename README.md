@@ -1,6 +1,6 @@
 # An Active Learning Pipeline for Identifying Whales in High-resolution Satellite Imagery
 
-**Jump to: [Setup](#setup) | [Interesting point detector](#interesting-point-detector) | [Labeling tool](#labeling-tool) | [Results](#results)**
+**Jump to: [Setup](#setup) | [Interesting point detector](#interesting-point-detector) | [Interesting point filtering](#interesting-point-filtering) | [Labeling tool](#labeling-tool) | [Results](#results)**
 
 
 This repository contains code for an [_active learning_](https://en.wikipedia.org/wiki/Active_learning_(machine_learning)) pipeline for detecting whales in high-resolution satellite imagery. This consists of two parts:
@@ -35,12 +35,55 @@ rm cb_2021_us_state_500k.*
 
 ## Interesting point detector
 
-The first part in our pipeline is an _interesting point detector_. There is a huge amount of variance in satellite imagery, even for images taken over the empty ocean, and there are few dataset of labeled whales in satellite imagery.
-As such, we take an unsupervised modeling approach to identify anomalous points that are offshore in order to feed a human-in-the-loop labeling pipeline instead of attempting to directly train a model to segment/classify whales.
+The `generate_interesting_points.py` script is the first step in our pipeline. It uses an unsupervised approach to identify anomalous points in satellite imagery that are offshore. These "interesting points" are then fed into the labeling tool.
 
-**Usage example**: The following command will load Maxar satellite imagery off the coast of Turkey (released by Maxar as part of their Open Data Program), then look for groups of anomalous pixels, and save the centroid locations of such groups to `results/` in GeoJSON format.
+The script works by scanning the image and identifying pixels that stand out from their surroundings. It offers several methods for this, each with its own strengths:
+
+-   **`big_window`**: This method compares a pixel to the median value of a large surrounding window. It's effective at finding bright objects on a dark background, such as white water from a whale surfacing.
+-   **`rolling_window`**: This method uses a smaller, rolling window, making it more sensitive to smaller-scale anomalies.
+-   **`gmm`**: A Gaussian Mixture Model approach (currently not implemented).
+
+**Command-line Arguments**:
+-   `--input_fn`: The URL or local path to the satellite image to process.
+-   `--output_fn` or `--output_dir`: The path to save the output GeoJSON file or directory.
+-   `--land_mask_fn`: Path to a vector file containing a polygon to exclude from processing.
+-   `--study_area_fn`: Path to a vector file defining the region of interest.
+-   `--method`: The detection method to use (`big_window`, `rolling_window`).
+-   `--big_window_size`: Window size for the `big_window` method.
+-   `--rolling_window_size`: Kernel size for the `rolling_window` method.
+-   `--min_stdev`: Minimum standard deviation to use as the denominator, reducing high scores in low-variance areas.
+-   `--area_threshold` and `--max_area_threshold`: The minimum and maximum size of a feature to keep.
+-   `--difference_threshold`: The threshold (in standard deviations) for a pixel to be considered anomalous.
+-   `--auto_difference_threshold`: Automatically set the difference threshold based on the distribution of deviations.
+-   `--bands`: Comma-separated list of band indices to use.
+-   `--return-full-shapes`: Output full polygon shapes with deviation statistics instead of centroid points.
+-   `--write-deviation-raster`: Write the deviation values to a raster file for debugging.
+
+**Usage example**: The following command will load Maxar satellite imagery off the coast of Turkey, use the `big_window` method to find groups of anomalous pixels, and save the centroid locations of these groups to `results/` in GeoJSON format.
 ```bash
-python generate_interesting_points.py --input_url "https://maxar-opendata.s3.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/37/031133021120/2023-02-12/10300100E1B9D900-visual.tif" --output_fn results/interesting_points.geojson --method big_window --difference_threshold 20
+python generate_interesting_points.py \
+    --input_fn "https://maxar-opendata.s3.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/37/031133021120/2023-02-12/10300100E1B9D900-visual.tif" \
+    --output_fn results/interesting_points.geojson \
+    --method big_window \
+    --difference_threshold 20
+```
+
+## Interesting point filtering
+
+The `ip_pg2pt_filter.py` script provides a flexible way to process and filter GeoJSON features. It can convert polygon geometries to centroids, calculate NDWI and pan values when raster data is provided, and filter features based on various criteria.
+
+**Key Features**:
+- **Centroid Conversion**: Converts polygon geometries to points (centroids).
+- **NDWI Calculation**: If a multiband raster is provided, it calculates the Normalized Difference Water Index (NDWI) for each feature and filters out those with a value < 0.3
+- **Panchromatic Value Calculation**: If a panchromatic image is provided, it calculates the mean pan value for each feature and filters out features with a value > 600 (assumes 0-2000 strettched TOA values)
+- **Percentile Filtering**: Filters features based on a specified percentile of a score property (e.g., `deviation_mean`).
+- **Field Renaming**: Renames fields (e.g., `deviation_mean` to `deviation`) before exporting.
+
+**Usage Example**:
+The following command demonstrates how to use the script to process a GeoJSON file, filter it based on the 90th percentile of the `deviation_mean` scores, and save the output.
+
+```bash
+python utilities/ip_pg2pt_filter.py results/interesting_points.geojson results/filtered_points.geojson --filter-by-percentile 90
 ```
 
 
