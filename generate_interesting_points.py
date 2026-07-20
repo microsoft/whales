@@ -127,7 +127,6 @@ def set_up_parser():
         help="Output full polygon shapes with deviation statistics (mean, max, std) instead of "
              "centroid points with mean deviation only",
     )
-    #TODO delete deviation raster if false
     parser.add_argument(
         "--write-deviation-raster",
         action="store_true",
@@ -396,6 +395,11 @@ def main(args):
     print(
         f"Wrote {count} features to '{output_fn}' in" + f" {time.time() - tic} seconds"
     )
+
+    # Delete deviation raster if --write-deviation-raster is false
+    if not args.write_deviation_raster:
+        print(f"Deleting temporary deviation raster: {output_deviations_fn}")
+        os.remove(output_deviations_fn)
 
 
 if __name__ == "__main__":
