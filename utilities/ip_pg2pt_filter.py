@@ -24,6 +24,11 @@ def calculate_ndwi_from_geojson(geojson_path, output_geojson_path, raster_path=N
         filter_by_percentile (float, optional): Percentile threshold for filtering by mean deviation scores.
     """
 
+    if raster_path and not os.path.exists(raster_path):
+        raise FileNotFoundError(f"Raster file not found: {raster_path}")
+    if pan_image_path and not os.path.exists(pan_image_path):
+        raise FileNotFoundError(f"Panchromatic image file not found: {pan_image_path}")
+
     if filter_by_percentile is not None:
         if not 0 <= filter_by_percentile <= 100:
             raise ValueError("Percentile must be between 0 and 100.")
@@ -122,7 +127,7 @@ def calculate_ndwi_from_geojson(geojson_path, output_geojson_path, raster_path=N
         schema['properties']['pan_value'] = 'float'
     schema['geometry'] = 'Point'
 
-    logging.info(f"Saving output to: {output_geojson_path}")
+    logging.info(f"Saving {len(filtered_features)} features to: {output_geojson_path}")
     with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
         collection.writerecords(filtered_features)
     logging.info("Processing complete.")
