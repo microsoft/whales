@@ -222,3 +222,49 @@ def pansharpen(
             f.write(pansharpened_image)
     if verbose:
         print(f"Finished writing output in {time.time() - tic:0.2f} seconds")
+
+def process_geometry_chunk(args):
+    """
+    Worker function that processes a batch of geometries.
+    Runs entirely in its own CPU process.
+    """
+    chunk, dev_path, src_path, band_indices = args
+    results = []
+
+    # 1. Open the file handles exactly ONCE per chunk
+    with rasterio.open(dev_path) as dev_f, rasterio.open(src_path) as src:
+
+        for idx, (geom, val) in chunk:
+            if val != 1:
+                results.append((idx, float("inf"), float("inf"), float("inf"), True))
+                continue
+
+            try:
+                # 2. Extract from the deviation file
+                feature_devs, _ = rasterio.mask.mask(dev_f, [geom], crop=True, filled=False)
+
+                # Safety check: if geometry is tiny/outside raster, it returns an empty mask
+                if feature_devs.count() == 0:
+                    results.append((idx, float("inf"), float("inf"), float("inf"), True))
+                    continue
+
+                mean_val = float(feature_devs.mean())
+                max_val = float(feature_devs.max())
+                std_val = float(feature_devs.std())
+
+                # 3. Extract from the source imagery
+                feature_data, _ = rasterio.mask.mask(src, [geom], crop=True, indexes=band_indices, filled=False)
+                valid_mask = ~feature_data.mask[0]
+                all_zeros = np.all(feature_data.data == 0, axis=0)
+
+                # Convert numpy bool to standard Python bool to avoid pickling issues
+                has_zero = bool(np.any(all_zeros & valid_mask))
+
+                results.append((idx, mean_val, max_val, std_val, has_zero))
+
+            except ValueError:
+                # Failsafe: rasterio throws ValueError if the geometry
+                # does not overlap the raster extent at all.
+                results.append((idx, float("inf"), float("inf"), float("inf"), True))
+
+    return results
