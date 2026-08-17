@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - gdal
-  - python<3.12  # don't use the very latest version of python in case wheels aren't made for everything
+  - python>=3.10,<3.15
   - pip
   - pip:
     - -e .[dev]
