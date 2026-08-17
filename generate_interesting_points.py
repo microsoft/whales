@@ -3,6 +3,7 @@
 import argparse
 import os
 import time
+import json
 from concurrent.futures import ProcessPoolExecutor
 
 import fiona
@@ -395,6 +396,17 @@ def main(args):
     print(
         f"Wrote {count} features to '{output_fn}' in" + f" {time.time() - tic} seconds"
     )
+
+    # Write metadata
+    metadata = vars(args)
+    metadata['output_fn'] = output_fn
+    if 'output_dir' in metadata:
+        del metadata['output_dir']
+    metadata_fn = os.path.splitext(output_fn)[0] + "_meta.json"
+    with open(metadata_fn, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Wrote metadata to '{metadata_fn}'")
+
 
     # Delete deviation raster if --write-deviation-raster is false
     if not args.write_deviation_raster:

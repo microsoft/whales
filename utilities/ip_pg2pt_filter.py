@@ -127,6 +127,7 @@ def calculate_ndwi_from_geojson(geojson_path, output_geojson_path, raster_path=N
         schema['properties']['pan_value'] = 'float'
     schema['geometry'] = 'Point'
 
+    # Save filtered features even if feature count is 0 to make a record of the run
     logging.info(f"Saving {len(filtered_features)} features to: {output_geojson_path}")
     with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
         collection.writerecords(filtered_features)
