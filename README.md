@@ -27,13 +27,15 @@ The environment installs this repository as an editable Python package. If the n
 python -m pip install .
 ```
 
-Installation provides this command:
+Installation provides these commands:
 
 ```text
+filter-interesting-points
 generate-interesting-points
 ```
 
 The original `python <script>.py` commands remain supported. The installed version is available as `whales.__version__`.
+Python support is currently capped at 3.13 because Fiona 1.10.1 does not publish Python 3.14 wheels, and building Fiona from source requires GDAL development files.
 
 ## Testing
 
@@ -105,7 +107,7 @@ The `ip_pg2pt_filter.py` script provides a flexible way to process and filter Ge
 The following command demonstrates how to use the script to process a GeoJSON file, filter it based on the 90th percentile of the `deviation_mean` scores, and save the output.
 
 ```bash
-python utilities/ip_pg2pt_filter.py results/interesting_points.geojson results/filtered_points.geojson --filter-by-percentile 90
+filter-interesting-points results/interesting_points.geojson results/filtered_points.geojson --filter-by-percentile 90
 ```
 
 

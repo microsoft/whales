@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - gdal
-  - python>=3.11,<3.14
+  - python>=3.11,<3.14  # Fiona 1.10.1 has no Python 3.14 wheels.
   - pip
   - pip:
     - -e .[dev]

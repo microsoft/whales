@@ -7,6 +7,7 @@ name = "whales"
 dynamic = ["version"]
 description = "An active learning pipeline for identifying whales in high-resolution satellite imagery."
 readme = "README.md"
+# Fiona 1.10.1 has no Python 3.14 wheels, and source builds require GDAL development files.
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -41,6 +42,7 @@ dev = [
 ]
 
 [project.scripts]
+filter-interesting-points = "utilities.ip_pg2pt_filter:cli"
 generate-interesting-points = "generate_interesting_points:cli"
 
 [project.urls]
@@ -54,4 +56,4 @@ py-modules = ["generate_interesting_points"]
 version = { attr = "whales.__version__" }
 
 [tool.setuptools.packages.find]
-include = ["whales*"]
+include = ["utilities*", "whales*"]

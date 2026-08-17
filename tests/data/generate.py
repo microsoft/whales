@@ -1,9 +1,12 @@
 import argparse
 from pathlib import Path
 
+import fiona
 import numpy as np
 import rasterio
 from rasterio.transform import from_origin
+from rasterio.warp import transform_geom
+from shapely.geometry import box, mapping
 
 
 def generate_synthetic_raster(output_path: Path) -> Path:
@@ -24,6 +27,7 @@ def generate_synthetic_raster(output_path: Path) -> Path:
         dtype=data.dtype,
         crs="EPSG:32618",
         transform=from_origin(500_000, 1_000, 1, 1),
+        nodata=0,
         compress="DEFLATE",
         predictor=3,
         tiled=True,
@@ -35,18 +39,57 @@ def generate_synthetic_raster(output_path: Path) -> Path:
     return output_path
 
 
+def generate_boundary(output_path: Path, geometry, crs: str) -> Path:
+    output_path = Path(output_path)
+    schema = {"geometry": "Polygon", "properties": {}}
+    with fiona.open(
+        output_path,
+        "w",
+        driver="GeoJSON",
+        crs=crs,
+        schema=schema,
+    ) as collection:
+        collection.write(
+            {
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {},
+            }
+        )
+    return output_path
+
+
+def generate_test_data(output_dir: Path) -> None:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generate_synthetic_raster(output_dir / "synthetic.tif")
+
+    study_area = mapping(box(500_010, 980, 500_020, 990))
+    generate_boundary(
+        output_dir / "study_area.geojson",
+        transform_geom("EPSG:32618", "EPSG:4326", study_area),
+        "EPSG:4326",
+    )
+
+    generate_boundary(
+        output_dir / "land_mask.geojson",
+        mapping(box(500_014, 984, 500_016, 986)),
+        "EPSG:32618",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate the synthetic GeoTIFF used by detector tests."
+        description="Generate the raster and boundary data used by detector tests."
     )
     parser.add_argument(
-        "output_path",
+        "output_dir",
         type=Path,
         nargs="?",
-        default=Path(__file__).with_name("synthetic.tif"),
+        default=Path(__file__).parent,
     )
     args = parser.parse_args()
-    generate_synthetic_raster(args.output_path)
+    generate_test_data(args.output_dir)
 
 
 if __name__ == "__main__":
