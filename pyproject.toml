@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whales"
+dynamic = ["version"]
+description = "An active learning pipeline for identifying whales in high-resolution satellite imagery."
+readme = "README.md"
+requires-python = ">=3.9,<3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Caleb Robinson", email = "calebrob6@gmail.com" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "fiona",
+    "imageio",
+    "numpy",
+    "opencv-python",
+    "pandas",
+    "pytz",
+    "rasterio",
+    "shapely",
+    "timezonefinder>=6.2",
+    "torch",
+    "tqdm",
+    "utm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "pytest",
+    "twine",
+]
+
+[project.scripts]
+generate-interesting-points = "generate_interesting_points:cli"
+
+[project.urls]
+Homepage = "https://github.com/microsoft/whales"
+Issues = "https://github.com/microsoft/whales/issues"
+
+[tool.setuptools]
+py-modules = ["generate_interesting_points"]
+
+[tool.setuptools.dynamic]
+version = { attr = "whales.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["whales*"]
