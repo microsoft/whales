@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 import whales.methods
 import whales.utils
+from whales import __version__ as whales_version
 
 torch.set_num_threads(os.cpu_count())
 
@@ -399,9 +400,10 @@ def main(args):
 
     # Write metadata
     metadata = vars(args)
-    metadata['output_fn'] = output_fn
+    metadata['output_fn'] = os.path.basename(output_fn)
     if 'output_dir' in metadata:
         del metadata['output_dir']
+    metadata['package_version'] = f"whales v{whales_version}"
     metadata_fn = os.path.splitext(output_fn)[0] + "_meta.json"
     with open(metadata_fn, "w") as f:
         json.dump(metadata, f, indent=2)
