@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate tag and package version
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH format." >&2
+            exit 1
+          fi
+          package_version="$(python -c 'from whales import __version__; print(__version__)')"
+          if [[ "$GITHUB_REF_NAME" != "v${package_version}" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
+            exit 1
+          fi
+      - name: Install packaging tools
+        run: python -m pip install --upgrade build twine
+      - name: Build and check distributions
+        run: |
+          python -m build
+          python -m twine check dist/*
+          cd dist
+          sha256sum whales-* > SHA256SUMS
+      - name: Ensure release does not already exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists." >&2
+            exit 1
+          fi
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/whales-* \
+            dist/SHA256SUMS \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag

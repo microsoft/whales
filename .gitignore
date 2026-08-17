@@ -5,6 +5,8 @@ scripts/
 output/
 configs/
 data/
+!tests/data/
+!tests/data/**
 TODO.md
 labeling-tool/outputs/
 labeling-tool/inputs/

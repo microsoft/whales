@@ -414,7 +414,9 @@ def main(args):
         os.remove(output_deviations_fn)
 
 
+def cli():
+    main(set_up_parser().parse_args())
+
+
 if __name__ == "__main__":
-    parser = set_up_parser()
-    args = parser.parse_args()
-    main(args)
+    cli()
