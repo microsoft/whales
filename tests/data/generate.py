@@ -39,7 +39,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate the synthetic GeoTIFF used by detector tests."
     )
-    parser.add_argument("output_path", type=Path)
+    parser.add_argument(
+        "output_path",
+        type=Path,
+        nargs="?",
+        default=Path(__file__).with_name("synthetic.tif"),
+    )
     args = parser.parse_args()
     generate_synthetic_raster(args.output_path)
 

@@ -1,17 +1,21 @@
+from pathlib import Path
+
 import fiona
 import pytest
 import rasterio
 
 from generate_interesting_points import main, set_up_parser
-from tests.data.generate import generate_synthetic_raster
 
 
 def test_detector_finds_bright_feature_in_synthetic_raster(tmp_path):
-    input_path = tmp_path / "synthetic.tif"
+    input_path = Path(__file__).parent / "data" / "synthetic.tif"
     output_path = tmp_path / "interesting.geojson"
-    generate_synthetic_raster(input_path)
 
     with rasterio.open(input_path) as dataset:
+        assert dataset.count == 1
+        assert dataset.shape == (32, 32)
+        assert dataset.dtypes == ("float32",)
+        assert dataset.crs.to_string() == "EPSG:32618"
         assert dataset.profile["compress"] == "deflate"
         assert dataset.profile["tiled"] is True
 
@@ -41,5 +45,6 @@ def test_detector_finds_bright_feature_in_synthetic_raster(tmp_path):
 
     assert len(features) == 1
     assert features[0]["geometry"]["type"] == "Point"
+    assert features[0]["geometry"]["coordinates"] == pytest.approx((500_015, 985))
     assert features[0]["properties"]["area"] == pytest.approx(4)
     assert features[0]["properties"]["deviation"] > 10
