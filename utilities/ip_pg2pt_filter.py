@@ -8,8 +8,21 @@ import os
 import logging
 from shapely.geometry import shape, mapping
 
-# Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def set_up_parser():
+    parser = argparse.ArgumentParser(description='Process GeoJSON features, optionally using raster data.')
+    parser.add_argument('geojson_path', help='Path to the input GeoJSON file')
+    parser.add_argument('output_geojson_path', help='Path to save the output GeoJSON file')
+    parser.add_argument('--filter-by-ndwi',
+                        help='Path to the input multiband raster file (optional, ndwi > 0.3)')
+    parser.add_argument('--filter-by-pan-image',
+                        help='Path to the panchromatic image (optional, TOA < 600)')
+    parser.add_argument('--filter-by-percentile', type=float,
+                        help='Filter by top N percentile of mean deviation scores (optional)')
+    return parser
+
 
 def calculate_ndwi_from_geojson(geojson_path, output_geojson_path, raster_path=None, pan_image_path=None,
                                 filter_by_percentile=None):
@@ -127,22 +140,17 @@ def calculate_ndwi_from_geojson(geojson_path, output_geojson_path, raster_path=N
         collection.writerecords(filtered_features)
     logging.info("Processing complete.")
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Process GeoJSON features, optionally using raster data.')
-    parser.add_argument('geojson_path', help='Path to the input GeoJSON file')
-    parser.add_argument('output_geojson_path', help='Path to save the output GeoJSON file')
-    parser.add_argument('--filter-by-ndwi',
-                        help='Path to the input multiband raster file (optional, ndwi > 0.3)')
-    parser.add_argument('--filter-by-pan-image',
-                        help='Path to the panchromatic image (optional, TOA < 600)')
-    parser.add_argument('--filter-by-percentile', type=float,
-                        help='Filter by top N percentile of mean deviation scores (optional)')
-    args = parser.parse_args()
 
+def cli():
+    args = set_up_parser().parse_args()
     if os.path.exists(args.output_geojson_path):
         logging.warning(f"Output file '{args.output_geojson_path}' already exists. Skipping.")
-        exit()
+        return
 
     calculate_ndwi_from_geojson(args.geojson_path, args.output_geojson_path, args.filter_by_ndwi,
                                 args.filter_by_pan_image, args.filter_by_percentile)
     logging.info("All operations finished.")
+
+
+if __name__ == '__main__':
+    cli()
