@@ -26,8 +26,8 @@ jobs:
           - "3.13"
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -42,8 +42,8 @@ jobs:
     needs: test
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -62,7 +62,7 @@ jobs:
           cd "$RUNNER_TEMP"
           "$GITHUB_WORKSPACE/.package-venv/bin/python" -m pytest \
             "$GITHUB_WORKSPACE/tests/test_packaging.py"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: python-distributions
           path: dist/
