@@ -3,6 +3,8 @@
 import argparse
 import os
 import time
+import json
+from concurrent.futures import ProcessPoolExecutor
 
 import fiona
 import fiona.transform
@@ -17,6 +19,8 @@ from rasterio.enums import Resampling
 from tqdm import tqdm
 
 import whales.methods
+import whales.utils
+from whales import __version__ as whales_version
 
 torch.set_num_threads(os.cpu_count())
 
@@ -128,8 +132,7 @@ def set_up_parser():
     parser.add_argument(
         "--write-deviation-raster",
         action="store_true",
-        help="Write out the deviation values in raster fom before aggregating into shapes "
-            "(for debugging thresholds only)",
+        help="Write out the deviation values in raster form (for debugging thresholds)",
     )
 
     return parser
@@ -270,6 +273,31 @@ def main(args):
     else:
         difference_threshold = args.difference_threshold
 
+    base_profile = {
+        "driver": "GTiff",
+        "height": deviations.shape[0],
+        "width": deviations.shape[1],
+        "count": 1,
+        "crs": profile["crs"],
+        "transform": profile["transform"],
+    }
+
+    # Write deviations with overviews to disk for parallelized rasterio.mask.mask
+    dev_profile = {**base_profile, "dtype": deviations.dtype}
+    output_deviations_fn = output_fn.replace(".geojson", "_deviations.tif")
+    with rasterio.open(
+        output_deviations_fn,
+        "w",
+        **dev_profile,
+        compress="LZW",
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
+        bigtiff="YES",
+    ) as dst:
+        dst.write(deviations, 1)
+    print(f"Wrote deviations to {output_deviations_fn}")
+
     print("Computing connected features")
     tic = time.time()
 
@@ -283,56 +311,30 @@ def main(args):
         )
     )
 
+    indexed_outputs = list(enumerate(outputs))
+    chunk_size=500
+    max_workers=os.cpu_count()
+    chunks = [
+        indexed_outputs[i : i + chunk_size]
+        for i in range(0, len(indexed_outputs), chunk_size)
+    ]
+
+    task_args = [(chunk, output_deviations_fn, args.input_fn, band_indices) for chunk in chunks]
+
     # Calculate deviation statistics for each feature and check for all-zero pixels
-    # We use memory files for speed
-    all_means = []
-    all_maxes = []
-    all_stds = []
-    has_zero_pixels = []
-    
-    base_profile = {
-        "driver": "GTiff",
-        "height": deviations.shape[0],
-        "width": deviations.shape[1],
-        "count": 1,
-        "crs": profile["crs"],
-        "transform": profile["transform"],
-    }
-    
-    with rasterio.io.MemoryFile() as dev_memfile, rasterio.open(args.input_fn) as src:
-        # Write deviations to memory file
-        dev_profile = {**base_profile, "dtype": deviations.dtype}
-        with dev_memfile.open(**dev_profile) as dataset:
-            dataset.write(deviations, 1)
+    all_results = []
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for chunk_result in tqdm(
+            executor.map(whales.utils.process_geometry_chunk, task_args), total=len(chunks)
+        ):
+            all_results.extend(chunk_result)
 
-        if args.write_deviation_raster:
-            # Write deviations with overviews to disk for debugging/inspection
-            output_deviations_fn = output_fn.replace(".geojson", "_deviations.tif")
-            with rasterio.open(output_deviations_fn, "w", **dev_profile, compress="LZW",
-                               tiled=True, blockxsize=256, blockysize=256, bigtiff="YES") as dst:
-                dst.write(deviations, 1)
-                dst.build_overviews([2, 4, 8, 16], Resampling.nearest)
-                dst.update_tags(ns="rio_overview", resampling="nearest")
-            print(f"Wrote deviations to {output_deviations_fn}")
-
-        with dev_memfile.open() as dev_f:
-            for geom, val in tqdm(outputs):
-                if val == 1:
-                    feature_devs, _ = rasterio.mask.mask(dev_f, [geom], crop=True, filled=False)
-                    all_means.append(float(feature_devs.mean()))
-                    all_maxes.append(float(feature_devs.max()))
-                    all_stds.append(float(feature_devs.std()))
-
-                    # Check original imagery for all-zero pixels (only within the geometry)
-                    feature_data, _ = rasterio.mask.mask(src, [geom], crop=True, indexes=band_indices, filled=False)
-                    valid_mask = ~feature_data.mask[0]  # Pixels inside the geometry
-                    all_zeros = np.all(feature_data.data == 0, axis=0)
-                    has_zero_pixels.append(np.any(all_zeros & valid_mask))
-                else:
-                    all_means.append(float("inf"))
-                    all_maxes.append(float("inf"))
-                    all_stds.append(float("inf"))
-                    has_zero_pixels.append(True)
+    # Re-sort the results by the original index to fix any out-of-order returns
+    all_results.sort(key=lambda x: x[0])
+    all_means = [r[1] for r in all_results]
+    all_maxes = [r[2] for r in all_results]
+    all_stds = [r[3] for r in all_results]
+    has_zero_pixels = [r[4] for r in all_results]
     print(f"Found {len(outputs)} features in {time.time() - tic} seconds\n")
 
     print("Writing output")
@@ -395,6 +397,23 @@ def main(args):
     print(
         f"Wrote {count} features to '{output_fn}' in" + f" {time.time() - tic} seconds"
     )
+
+    # Write metadata
+    metadata = vars(args)
+    metadata['output_fn'] = os.path.basename(output_fn)
+    if 'output_dir' in metadata:
+        del metadata['output_dir']
+    metadata['package_version'] = f"whales v{whales_version}"
+    metadata_fn = os.path.splitext(output_fn)[0] + "_meta.json"
+    with open(metadata_fn, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Wrote metadata to '{metadata_fn}'")
+
+
+    # Delete deviation raster if --write-deviation-raster is false
+    if not args.write_deviation_raster:
+        print(f"Deleting temporary deviation raster: {output_deviations_fn}")
+        os.remove(output_deviations_fn)
 
 
 def cli():
