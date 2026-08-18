@@ -28,7 +28,7 @@ dependencies = [
     "pytz",
     "rasterio",
     "shapely",
-    "timezonefinder>=6.2",
+    "timezonefinder>=8.2.5",
     "torch",
     "tqdm",
     "utm",
