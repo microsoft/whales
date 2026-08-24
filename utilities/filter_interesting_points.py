@@ -20,6 +20,8 @@ def set_up_parser():
     parser.add_argument('pan_image_path', help='Path to the panchromatic image')
     parser.add_argument('--filter-by-ndwi',
                         help='Path to the input multiband raster file (optional, ndwi > 0.3)')
+    parser.add_argument('--green-band-idx', type=int, default=3, help='1-based index of the green band')
+    parser.add_argument('--nir-band-idx', type=int, default=8, help='1-based index of the NIR band')
     parser.add_argument('--filter-by-pan-threshold', type=float,
                         help='Filter by panchromatic image pixel value (optional)')
     parser.add_argument('--filter-by-percentile', type=float,
@@ -53,20 +55,10 @@ def get_ndwi_value(green_band, nir_band) -> float:
 
 
 def process_features(geojson_path, output_geojson_path, pan_image_path, raster_path=None,
+                     green_band_idx=3, nir_band_idx=8,
                      filter_by_pan_threshold=None, filter_by_percentile=None) -> int:
     """
     Processes GeoJSON features, calculates NDWI and pan values, and filters them.
-
-    Args:
-        geojson_path (str): Path to the input GeoJSON file.
-        output_geojson_path (str): Path to save the output GeoJSON file.
-        pan_image_path (str): Path to the panchromatic image.
-        raster_path (str, optional): Path to the input multiband raster file.
-        filter_by_pan_threshold (float, optional): Threshold for panchromatic image filtering.
-        filter_by_percentile (float, optional): Percentile threshold for filtering by mean deviation scores.
-        
-    Returns:
-        The number of features in the output file.
     """
 
     if raster_path and not os.path.exists(raster_path):
@@ -90,6 +82,9 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     pan_src = rasterio.open(pan_image_path)
     src = rasterio.open(raster_path) if raster_path else None
 
+    # Adjust to 0-based index for array access
+    green_idx, nir_idx = green_band_idx - 1, nir_band_idx - 1
+
     try:
         logging.info("Processing features...")
         for feature in features:
@@ -100,10 +95,9 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                 coords = [geom.x, geom.y]
                 if src:
                     try:
-                        # Sample the raster at the point location
                         for val in src.sample([coords]):
-                            green_band = val[2].astype(float)
-                            nir_band = val[7].astype(float)
+                            green_band = val[green_idx].astype(float)
+                            nir_band = val[nir_idx].astype(float)
                             ndwi_val = get_ndwi_value(green_band, nir_band)
                             properties['ndwi'] = ndwi_val
                             properties['water'] = get_water_class(ndwi_val)
@@ -122,10 +116,9 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
             elif geom.geom_type == 'Polygon':
                 if src:
                     try:
-                        out_image, out_transform = rasterio.mask.mask(src, [geom], all_touched=True, crop=True,
-                                                                      nodata=src.nodata)
-                        green_band = out_image[2, :, :].astype(float)
-                        nir_band = out_image[7, :, :].astype(float)
+                        out_image, _ = rasterio.mask.mask(src, [geom], all_touched=True, crop=True, nodata=src.nodata)
+                        green_band = out_image[green_idx, :, :].astype(float)
+                        nir_band = out_image[nir_idx, :, :].astype(float)
                         ndwi_val = get_ndwi_value(green_band, nir_band)
                         properties['ndwi'] = ndwi_val
                         properties['water'] = get_water_class(ndwi_val)
@@ -149,27 +142,35 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
             src.close()
         pan_src.close()
 
-    # Filter features
-    filtered_features = new_features
-    if filter_by_pan_threshold is not None:
-        filtered_features = [f for f in filtered_features if f["properties"].get("pan_value", float('inf')) < filter_by_pan_threshold]
-
-    if raster_path:
-        filtered_features = [f for f in filtered_features if f['properties'].get('water') != 'not water']
-
-    # Optional filtering by percentile
+    # Consolidated filtering
+    final_features = []
+    
+    # Pre-calculate percentile threshold if needed
+    percentile_threshold = None
     if filter_by_percentile is not None:
-        logging.info(f"Filtering by percentile: {filter_by_percentile}")
         score_property = 'deviation_mean'
-        scores = [f['properties'][score_property] for f in filtered_features if score_property in f['properties']]
+        scores = [f['properties'].get(score_property) for f in new_features if f['properties'].get(score_property) is not None]
         if scores:
             percentile_threshold = np.percentile(scores, filter_by_percentile)
-            filtered_features = [f for f in filtered_features if f['properties'].get(score_property,
-                                                                                     0) >= percentile_threshold]
-            logging.info(f"Filtered down to {len(filtered_features)} features.")
+            logging.info(f"Filtering by percentile: {filter_by_percentile} ({score_property} >= {percentile_threshold:.2f})")
+        else:
+            logging.warning(f"'{score_property}' not found in features. Skipping percentile filter.")
+
+    for feature in new_features:
+        # Pan threshold filter
+        if filter_by_pan_threshold is not None and feature["properties"].get("pan_value", float('inf')) >= filter_by_pan_threshold:
+            continue
+        # NDWI filter
+        if raster_path and feature['properties'].get('water') == 'not water':
+            continue
+        # Percentile filter
+        if percentile_threshold is not None and feature['properties'].get(score_property, -1) < percentile_threshold:
+            continue
+        
+        final_features.append(feature)
 
     # Rename 'deviation_mean' to 'deviation'
-    for feature in filtered_features:
+    for feature in final_features:
         if 'deviation_mean' in feature['properties']:
             feature['properties']['deviation'] = feature['properties'].pop('deviation_mean')
 
@@ -181,13 +182,12 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     schema['properties']['pan_value'] = 'float'
     schema['geometry'] = 'Point'
 
-    # Save filtered features even if feature count is 0 to make a record of the run
-    logging.info(f"Saving {len(filtered_features)} features to: {output_geojson_path}")
+    logging.info(f"Saving {len(final_features)} features to: {output_geojson_path}")
     with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
-        collection.writerecords(filtered_features)
+        collection.writerecords(final_features)
     logging.info("Processing complete.")
     
-    return len(filtered_features)
+    return len(final_features)
 
 
 def cli():
@@ -196,8 +196,11 @@ def cli():
         logging.warning(f"Output file '{args.output_geojson_path}' already exists. Skipping.")
         return
 
-    num_filtered_points = process_features(args.geojson_path, args.output_geojson_path, args.pan_image_path,
-                     args.filter_by_ndwi, args.filter_by_pan_threshold, args.filter_by_percentile)
+    num_filtered_points = process_features(
+        args.geojson_path, args.output_geojson_path, args.pan_image_path,
+        args.filter_by_ndwi, args.green_band_idx, args.nir_band_idx,
+        args.filter_by_pan_threshold, args.filter_by_percentile
+    )
 
     # Handle metadata
     source_metadata_path = os.path.splitext(args.geojson_path)[0] + "_meta.json"
@@ -225,14 +228,9 @@ def cli():
     if args.filter_by_ndwi:
         logging.info(f"Calculating water area from: {args.filter_by_ndwi}")
         with rasterio.open(args.filter_by_ndwi) as src:
-            green_band = src.read(3).astype(float)
-            nir_band = src.read(8).astype(float)
-            np.seterr(divide='ignore', invalid='ignore')
-            ndwi = (green_band - nir_band) / (green_band + nir_band)
-            water_mask = ndwi > 0.3
-            pixel_area_sq_meters = src.res[0] * src.res[1]
-            pixel_area_sq_km = pixel_area_sq_meters / 1_000_000
-            water_area_sq_km = np.sum(water_mask) * pixel_area_sq_km
+            green_band = src.read(args.green_band_idx).astype(float)
+            nir_band = src.read(args.nir_band_idx).astype(float)
+            water_area_sq_km = np.sum(get_ndwi_value(green_band, nir_band) > 0.3) * (src.res[0] * src.res[1] / 1_000_000)
             logging.info(f"Total water area (NDWI > 0.3): {water_area_sq_km:.2f} sq km")
 
             ip_density = 0
@@ -255,6 +253,8 @@ def cli():
             "filtered_points_fn": os.path.basename(args.output_geojson_path),
             "pan_image_fn": os.path.basename(args.pan_image_path),
             "filter_by_ndwi": os.path.basename(args.filter_by_ndwi) if args.filter_by_ndwi else None,
+            "green_band_idx": args.green_band_idx,
+            "nir_band_idx": args.nir_band_idx,
             "filter_by_pan_threshold": args.filter_by_pan_threshold,
             "filter_by_percentile": args.filter_by_percentile
         },
