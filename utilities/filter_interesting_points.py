@@ -182,6 +182,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     schema['properties']['pan_value'] = 'float'
     schema['geometry'] = 'Point'
 
+    # Write the output even if the feature count is 0 as a record of the run
     logging.info(f"Saving {len(final_features)} features to: {output_geojson_path}")
     with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
         collection.writerecords(final_features)
