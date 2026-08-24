@@ -8,7 +8,7 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def summarize_density_analysis(input_dir, output_csv):
+def cli(input_dir, output_csv):
     """
     Reads all metadata JSON files in a directory, extracts the 'density_analysis' 
     section, and writes the data to a CSV file.
@@ -97,7 +97,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        summarize_density_analysis(args.input_directory, args.output_csv)
+        cli(args.input_directory, args.output_csv)
     except Exception as e:
         logging.error(f"{e}")
 

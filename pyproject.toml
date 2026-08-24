@@ -42,6 +42,7 @@ dev = [
 ]
 
 [project.scripts]
+summarize-filtered-points = "utilities.summarize_filtered_points:cli"
 filter-interesting-points = "utilities.filter_interesting_points:cli"
 generate-interesting-points = "generate_interesting_points:cli"
 
