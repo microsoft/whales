@@ -8,15 +8,36 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def cli(input_dir, output_csv):
+
+def set_up_parser():
+    parser = argparse.ArgumentParser(
+        description="Summarize density analysis data from metadata JSON files into a single CSV."
+    )
+    parser.add_argument(
+        'input_directory',
+        help="Directory containing the '_meta.json' files to process."
+    )
+    parser.add_argument(
+        'output_csv',
+        help="Path to the output CSV file."
+    )
+    return parser
+
+
+def cli():
     """
-    Reads all metadata JSON files in a directory, extracts the 'density_analysis' 
+    Reads all metadata JSON files in a directory, extracts the 'density_analysis'
     section, and writes the data to a CSV file.
 
-    Args:
-        input_dir (str): The path to the directory containing the metadata files.
+    Expects:
+        input_directory (str): The path to the directory containing the metadata files.
         output_csv (str): The path to the output CSV file.
     """
+
+    args = set_up_parser().parse_args()
+    input_dir = args.input_directory
+    output_csv = args.output_csv
+
     # Validate input directory
     if not os.path.isdir(input_dir):
         logging.error(f"Input directory not found or is not a directory: {input_dir}")
@@ -83,21 +104,6 @@ def cli(input_dir, output_csv):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description="Summarize density analysis data from metadata JSON files into a single CSV."
-    )
-    parser.add_argument(
-        'input_directory',
-        help="Directory containing the '_meta.json' files to process."
-    )
-    parser.add_argument(
-        'output_csv',
-        help="Path to the output CSV file."
-    )
-    args = parser.parse_args()
+    cli()
 
-    try:
-        cli(args.input_directory, args.output_csv)
-    except Exception as e:
-        logging.error(f"{e}")
 
