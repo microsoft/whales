@@ -86,7 +86,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     green_idx, nir_idx = green_band_idx - 1, nir_band_idx - 1
 
     try:
-        logging.info("Processing features...")
+        logging.info("Processing features")
         for feature in features:
             properties = dict(feature['properties'])
             geom = shape(feature['geometry'])
@@ -186,8 +186,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     logging.info(f"Saving {len(final_features)} features to: {output_geojson_path}")
     with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
         collection.writerecords(final_features)
-    logging.info("Processing complete.")
-    
+
     return len(final_features)
 
 

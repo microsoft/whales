@@ -132,9 +132,10 @@ def test_metadata_generation_happy_path(tmp_path, monkeypatch):
     with open(source_meta_json, "w") as f:
         json.dump(source_meta_content, f)
 
-    root = ET.Element("PGC_IMD")
-    ET.SubElement(root, "CATID").text = "TEST_CATID"
-    ET.SubElement(root, "CLOUDCVR").text = "0.1"
+    root = ET.Element("root")
+    pgc_imd = ET.SubElement(root, "PGC_IMD")
+    ET.SubElement(pgc_imd, "CATID").text = "TEST_CATID"
+    ET.SubElement(pgc_imd, "CLOUDCVR").text = "0.1"
     tree = ET.ElementTree(root)
     tree.write(image_meta_xml)
 
