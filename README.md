@@ -30,8 +30,9 @@ python -m pip install .
 Installation provides these commands:
 
 ```text
-filter-interesting-points
 generate-interesting-points
+filter-interesting-points
+summarize-filtered-points
 ```
 
 The original `python <script>.py` commands remain supported. The installed version is available as `whales.__version__`.
@@ -94,22 +95,20 @@ python generate_interesting_points.py \
 
 ## Interesting point filtering
 
-The `ip_pg2pt_filter.py` script provides a flexible way to process and filter GeoJSON features. It can convert polygon geometries to centroids, calculate NDWI and pan values when raster data is provided, and filter features based on various criteria.
-
-**Key Features**:
-- **Centroid Conversion**: Converts polygon geometries to points (centroids).
-- **NDWI Calculation**: If a multiband raster is provided, it calculates the Normalized Difference Water Index (NDWI) for each feature and filters out those with a value < 0.3
-- **Panchromatic Value Calculation**: If a panchromatic image is provided, it calculates the mean pan value for each feature and filters out features with a value > 600 (assumes 0-2000 strettched TOA values)
-- **Percentile Filtering**: Filters features based on a specified percentile of a score property (e.g., `deviation_mean`).
-- **Field Renaming**: Renames fields (e.g., `deviation_mean` to `deviation`) before exporting.
+The `filter_interesting_points.py` script provides a flexible way to process and filter GeoJSON features. It can convert polygon geometries to centroids, calculate NDWI and pan values when raster data is provided, and filter features based on various criteria.
 
 **Usage Example**:
 The following command demonstrates how to use the script to process a GeoJSON file, filter it based on the 90th percentile of the `deviation_mean` scores, and save the output.
 
 ```bash
-filter-interesting-points results/interesting_points.geojson results/filtered_points.geojson --filter-by-percentile 90
+filter-interesting-points results/interesting_points.geojson results/filtered_points.geojson results/pan_image.tif --filter-by-percentile 90
 ```
 
+**Summarizing filtered points**: The `summarize_filtered_points.py` script reads the metadata JSON files in a target directory and compiles the `density_analysis` section from each into a single CSV file.
+
+```bash
+summarize-filtered-points results/ results/summary.csv
+```
 
 ## Labeling tool
 
