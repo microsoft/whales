@@ -231,26 +231,46 @@ def cli():
     if args.filter_by_ndwi:
         logging.info(f"Calculating water area from: {args.filter_by_ndwi}")
         with rasterio.open(args.filter_by_ndwi) as src:
+            pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
             green_band = src.read(args.green_band_idx).astype(float)
             nir_band = src.read(args.nir_band_idx).astype(float)
             np.seterr(divide='ignore', invalid='ignore')
             ndwi = (green_band - nir_band) / (green_band + nir_band)
             water_mask = ndwi > 0.3
-            pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
             water_area_sq_km = np.sum(water_mask) * pixel_area_sq_km
-            logging.info(f"Total water area (NDWI > 0.3): {water_area_sq_km:.2f} sq km")
 
-            ip_density = 0
             if water_area_sq_km > 0:
-                ip_density = num_filtered_points / water_area_sq_km
-                logging.info(f"Interesting points per sq km of water: {ip_density:.2f}")
+                ip_water_density = num_filtered_points / water_area_sq_km
+                logging.info(f"Total water area (NDWI > 0.3): {water_area_sq_km:.2f} sq km")
+                logging.info(f"Water-masked interesting point density: {ip_water_density:.2f} / sq km")
             else:
                 logging.warning("No water area found. Cannot calculate density.")
-            
+
             density_analysis = {
                 "num_interesting_points": num_filtered_points,
                 "water_area_sq_km": round(water_area_sq_km, 2),
-                "ip_density_per_sq_km": round(ip_density, 2)
+                "ip_density_per_sq_km_water": round(ip_water_density, 2),
+            }
+
+    else:
+        logging.info(f"Calculating total area from: {args.pan_image_path}")
+        with rasterio.open(args.pan_image_path) as src:
+            pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
+            pan_band = src.read(1).astype(float)
+            valid_data_mask = np.isfinite(pan_band)
+            valid_area_sq_km = np.sum(valid_data_mask) * pixel_area_sq_km
+
+            logging.info(f"Total valid area: {valid_area_sq_km:.2f} sq km")
+            if valid_area_sq_km > 0:
+                ip_density = num_filtered_points / valid_area_sq_km
+                logging.info(f"Interesting point density: {ip_density:.2f} / sq km")
+            else:
+                logging.warning("No valid data found. Cannot calculate density.")
+
+            density_analysis = {
+                "num_interesting_points": num_filtered_points,
+                "valid_area_sq_km": round(valid_area_sq_km, 2),
+                "ip_density_per_sqkm_valid_data": round(ip_density, 2),
             }
 
     output_metadata = {
@@ -259,11 +279,13 @@ def cli():
         "filtering_parameters": {
             "filtered_points_fn": os.path.basename(args.output_geojson_path),
             "pan_image_fn": os.path.basename(args.pan_image_path),
-            "filter_by_ndwi": os.path.basename(args.filter_by_ndwi) if args.filter_by_ndwi else None,
+            "filter_by_ndwi": os.path.basename(args.filter_by_ndwi)
+            if args.filter_by_ndwi
+            else None,
             "green_band_idx": args.green_band_idx,
             "nir_band_idx": args.nir_band_idx,
             "filter_by_pan_threshold": args.filter_by_pan_threshold,
-            "filter_by_percentile": args.filter_by_percentile
+            "filter_by_percentile": args.filter_by_percentile,
         },
         "density_analysis": density_analysis,
     }
@@ -272,8 +294,6 @@ def cli():
     with open(output_metadata_path, 'w') as f:
         json.dump(output_metadata, f, indent=2)
     logging.info(f"Wrote metadata to {output_metadata_path}")
-
-    logging.info("All operations finished.")
 
 
 if __name__ == '__main__':

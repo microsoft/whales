@@ -166,3 +166,5 @@ def test_metadata_generation_happy_path(tmp_path, monkeypatch):
     assert output_metadata["filtering_parameters"]["pan_image_fn"] == "pan.tif"
     
     assert "density_analysis" in output_metadata
+    assert output_metadata["density_analysis"]["num_interesting_points"] == 1
+    assert "valid_area_sq_km" in output_metadata["density_analysis"]
