@@ -1,3 +1,4 @@
+from typing import Any
 
 import fiona
 import rasterio
@@ -8,6 +9,8 @@ import os
 import logging
 import json
 import xml.etree.ElementTree as ET
+
+from numpy import floating
 from shapely.geometry import shape, mapping
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -44,7 +47,7 @@ def get_water_class(ndwi) -> str:
 
 def get_ndwi_value(green_band, nir_band) -> float:
     """
-    Calculates the final NDWI value from green and NIR bands,
+    Calculates the final NDWI value for a feature from green and NIR bands,
     handling both single values and arrays.
     """
     np.seterr(divide='ignore', invalid='ignore')
@@ -230,7 +233,11 @@ def cli():
         with rasterio.open(args.filter_by_ndwi) as src:
             green_band = src.read(args.green_band_idx).astype(float)
             nir_band = src.read(args.nir_band_idx).astype(float)
-            water_area_sq_km = np.sum(get_ndwi_value(green_band, nir_band) > 0.3) * (src.res[0] * src.res[1] / 1_000_000)
+            np.seterr(divide='ignore', invalid='ignore')
+            ndwi = (green_band - nir_band) / (green_band + nir_band)
+            water_mask = ndwi > 0.3
+            pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
+            water_area_sq_km = np.sum(water_mask) * pixel_area_sq_km
             logging.info(f"Total water area (NDWI > 0.3): {water_area_sq_km:.2f} sq km")
 
             ip_density = 0
