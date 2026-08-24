@@ -15,6 +15,6 @@ def test_console_entry_points_are_registered():
     }
 
     assert scripts == {
-        "filter-interesting-points": "utilities.ip_pg2pt_filter:cli",
+        "filter-interesting-points": "utilities.filter_interesting_points:cli",
         "generate-interesting-points": "generate_interesting_points:cli",
     }
