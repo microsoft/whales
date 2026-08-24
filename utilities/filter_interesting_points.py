@@ -1,0 +1,273 @@
+
+import fiona
+import rasterio
+import rasterio.mask
+import numpy as np
+import argparse
+import os
+import logging
+import json
+import xml.etree.ElementTree as ET
+from shapely.geometry import shape, mapping
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def set_up_parser():
+    parser = argparse.ArgumentParser(description='Process GeoJSON features, optionally using raster data.')
+    parser.add_argument('geojson_path', help='Path to the input GeoJSON file')
+    parser.add_argument('output_geojson_path', help='Path to save the output GeoJSON file')
+    parser.add_argument('pan_image_path', help='Path to the panchromatic image')
+    parser.add_argument('--filter-by-ndwi',
+                        help='Path to the input multiband raster file (optional, ndwi > 0.3)')
+    parser.add_argument('--filter-by-pan-threshold', type=float,
+                        help='Filter by panchromatic image pixel value (optional)')
+    parser.add_argument('--filter-by-percentile', type=float,
+                        help='Filter by top N percentile of mean deviation scores (optional)')
+    return parser
+
+
+def get_water_class(ndwi) -> str:
+    """
+    Determines the water classification based on the NDWI value.
+    Returns the water classification string.
+    """
+    if ndwi < 0.3:
+        return 'not water'
+    elif ndwi < 0.5:
+        return 'probably water'
+    else:
+        return 'water'
+
+
+def get_ndwi_value(green_band, nir_band) -> float:
+    """
+    Calculates the final NDWI value from green and NIR bands,
+    handling both single values and arrays.
+    """
+    np.seterr(divide='ignore', invalid='ignore')
+    ndwi = (green_band - nir_band) / (green_band + nir_band)
+    if isinstance(ndwi, np.ndarray):
+        return np.nanmean(ndwi)
+    return ndwi
+
+
+def process_features(geojson_path, output_geojson_path, pan_image_path, raster_path=None,
+                     filter_by_pan_threshold=None, filter_by_percentile=None) -> int:
+    """
+    Processes GeoJSON features, calculates NDWI and pan values, and filters them.
+
+    Args:
+        geojson_path (str): Path to the input GeoJSON file.
+        output_geojson_path (str): Path to save the output GeoJSON file.
+        pan_image_path (str): Path to the panchromatic image.
+        raster_path (str, optional): Path to the input multiband raster file.
+        filter_by_pan_threshold (float, optional): Threshold for panchromatic image filtering.
+        filter_by_percentile (float, optional): Percentile threshold for filtering by mean deviation scores.
+        
+    Returns:
+        The number of features in the output file.
+    """
+
+    if raster_path and not os.path.exists(raster_path):
+        raise FileNotFoundError(f"Raster file not found: {raster_path}")
+    if not os.path.exists(pan_image_path):
+        raise FileNotFoundError(f"Panchromatic image file not found: {pan_image_path}")
+
+    if filter_by_percentile is not None:
+        if not 0 <= filter_by_percentile <= 100:
+            raise ValueError("Percentile must be between 0 and 100.")
+
+    logging.info(f"Reading GeoJSON file: {geojson_path}")
+    with fiona.open(geojson_path, 'r') as collection:
+        features = list(collection)
+        schema = collection.schema
+        crs = collection.crs
+
+    new_features = []
+
+    logging.info(f"Processing rasters")
+    pan_src = rasterio.open(pan_image_path)
+    src = rasterio.open(raster_path) if raster_path else None
+
+    try:
+        logging.info("Processing features...")
+        for feature in features:
+            properties = dict(feature['properties'])
+            geom = shape(feature['geometry'])
+
+            if geom.geom_type == 'Point':
+                coords = [geom.x, geom.y]
+                if src:
+                    try:
+                        # Sample the raster at the point location
+                        for val in src.sample([coords]):
+                            green_band = val[2].astype(float)
+                            nir_band = val[7].astype(float)
+                            ndwi_val = get_ndwi_value(green_band, nir_band)
+                            properties['ndwi'] = ndwi_val
+                            properties['water'] = get_water_class(ndwi_val)
+                    except (ValueError, IndexError) as e:
+                        logging.warning(f"Skipping NDWI calculation for point feature due to error: {e}")
+
+                try:
+                    for val in pan_src.sample([coords]):
+                        properties['pan_value'] = float(val[0])
+                except (ValueError, IndexError) as e:
+                    logging.warning(f"Skipping pan value calculation for point feature due to error: {e}")
+
+                new_feature = {'type': 'Feature', 'geometry': mapping(geom), 'properties': properties}
+                new_features.append(new_feature)
+
+            elif geom.geom_type == 'Polygon':
+                if src:
+                    try:
+                        out_image, out_transform = rasterio.mask.mask(src, [geom], all_touched=True, crop=True,
+                                                                      nodata=src.nodata)
+                        green_band = out_image[2, :, :].astype(float)
+                        nir_band = out_image[7, :, :].astype(float)
+                        ndwi_val = get_ndwi_value(green_band, nir_band)
+                        properties['ndwi'] = ndwi_val
+                        properties['water'] = get_water_class(ndwi_val)
+                    except (ValueError, IndexError) as e:
+                        logging.warning(f"Skipping NDWI calculation for polygon feature due to error: {e}")
+
+                try:
+                    pan_image, _ = rasterio.mask.mask(pan_src, [geom], crop=True, nodata=pan_src.nodata)
+                    masked_pan = np.ma.masked_equal(pan_image, pan_src.nodata)
+                    mean_pan_value = masked_pan.mean()
+                    if not isinstance(mean_pan_value, np.ma.core.MaskedConstant):
+                        properties['pan_value'] = float(mean_pan_value)
+                except (ValueError, IndexError) as e:
+                    logging.warning(f"Skipping pan value calculation for polygon feature due to error: {e}")
+
+                centroid = geom.centroid
+                new_feature = {'type': 'Feature', 'geometry': mapping(centroid), 'properties': properties}
+                new_features.append(new_feature)
+    finally:
+        if src:
+            src.close()
+        pan_src.close()
+
+    # Filter features
+    filtered_features = new_features
+    if filter_by_pan_threshold is not None:
+        filtered_features = [f for f in filtered_features if f["properties"].get("pan_value", float('inf')) < filter_by_pan_threshold]
+
+    if raster_path:
+        filtered_features = [f for f in filtered_features if f['properties'].get('water') != 'not water']
+
+    # Optional filtering by percentile
+    if filter_by_percentile is not None:
+        logging.info(f"Filtering by percentile: {filter_by_percentile}")
+        score_property = 'deviation_mean'
+        scores = [f['properties'][score_property] for f in filtered_features if score_property in f['properties']]
+        if scores:
+            percentile_threshold = np.percentile(scores, filter_by_percentile)
+            filtered_features = [f for f in filtered_features if f['properties'].get(score_property,
+                                                                                     0) >= percentile_threshold]
+            logging.info(f"Filtered down to {len(filtered_features)} features.")
+
+    # Rename 'deviation_mean' to 'deviation'
+    for feature in filtered_features:
+        if 'deviation_mean' in feature['properties']:
+            feature['properties']['deviation'] = feature['properties'].pop('deviation_mean')
+
+    # Update schema
+    if 'deviation_mean' in schema['properties']:
+        schema['properties']['deviation'] = schema['properties'].pop('deviation_mean')
+    if raster_path:
+        schema['properties'].update({'ndwi': 'float', 'water': 'str'})
+    schema['properties']['pan_value'] = 'float'
+    schema['geometry'] = 'Point'
+
+    # Save filtered features even if feature count is 0 to make a record of the run
+    logging.info(f"Saving {len(filtered_features)} features to: {output_geojson_path}")
+    with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
+        collection.writerecords(filtered_features)
+    logging.info("Processing complete.")
+    
+    return len(filtered_features)
+
+
+def cli():
+    args = set_up_parser().parse_args()
+    if os.path.exists(args.output_geojson_path):
+        logging.warning(f"Output file '{args.output_geojson_path}' already exists. Skipping.")
+        return
+
+    num_filtered_points = process_features(args.geojson_path, args.output_geojson_path, args.pan_image_path,
+                     args.filter_by_ndwi, args.filter_by_pan_threshold, args.filter_by_percentile)
+
+    # Handle metadata
+    source_metadata_path = os.path.splitext(args.geojson_path)[0] + "_meta.json"
+    if os.path.exists(source_metadata_path):
+        with open(source_metadata_path, 'r') as f:
+            source_metadata = json.load(f)
+    else:
+        source_metadata = "Source metadata not found."
+
+    xml_metadata_path = os.path.splitext(args.pan_image_path)[0] + ".xml"
+    if os.path.exists(xml_metadata_path):
+        image_id = os.path.basename(os.path.splitext(xml_metadata_path)[0])
+        tree = ET.parse(xml_metadata_path)
+        root = tree.getroot()
+        pgc_imd_element = root.find("PGC_IMD")
+        if pgc_imd_element is not None:
+            image_metadata = {"image_id": image_id}
+            image_metadata.update({child.tag.lower(): child.text for child in pgc_imd_element})
+        else:
+            image_metadata = "'PGC_IMD' section not found in image metadata."
+    else:
+        image_metadata = "Image metadata not found."
+
+    density_analysis = {}
+    if args.filter_by_ndwi:
+        logging.info(f"Calculating water area from: {args.filter_by_ndwi}")
+        with rasterio.open(args.filter_by_ndwi) as src:
+            green_band = src.read(3).astype(float)
+            nir_band = src.read(8).astype(float)
+            np.seterr(divide='ignore', invalid='ignore')
+            ndwi = (green_band - nir_band) / (green_band + nir_band)
+            water_mask = ndwi > 0.3
+            pixel_area_sq_meters = src.res[0] * src.res[1]
+            pixel_area_sq_km = pixel_area_sq_meters / 1_000_000
+            water_area_sq_km = np.sum(water_mask) * pixel_area_sq_km
+            logging.info(f"Total water area (NDWI > 0.3): {water_area_sq_km:.2f} sq km")
+
+            ip_density = 0
+            if water_area_sq_km > 0:
+                ip_density = num_filtered_points / water_area_sq_km
+                logging.info(f"Interesting points per sq km of water: {ip_density:.2f}")
+            else:
+                logging.warning("No water area found. Cannot calculate density.")
+            
+            density_analysis = {
+                "num_interesting_points": num_filtered_points,
+                "water_area_sq_km": round(water_area_sq_km, 2),
+                "ip_density_per_sq_km": round(ip_density, 2)
+            }
+
+    output_metadata = {
+        "image_metadata": image_metadata,
+        "source_metadata": source_metadata,
+        "filtering_parameters": {
+            "filtered_points_fn": os.path.basename(args.output_geojson_path),
+            "pan_image_fn": os.path.basename(args.pan_image_path),
+            "filter_by_ndwi": os.path.basename(args.filter_by_ndwi) if args.filter_by_ndwi else None,
+            "filter_by_pan_threshold": args.filter_by_pan_threshold,
+            "filter_by_percentile": args.filter_by_percentile
+        },
+        "density_analysis": density_analysis,
+    }
+
+    output_metadata_path = os.path.splitext(args.output_geojson_path)[0] + "_meta.json"
+    with open(output_metadata_path, 'w') as f:
+        json.dump(output_metadata, f, indent=2)
+    logging.info(f"Wrote metadata to {output_metadata_path}")
+
+    logging.info("All operations finished.")
+
+
+if __name__ == '__main__':
+    cli()
