@@ -1,4 +1,3 @@
-from typing import Any
 
 import fiona
 import rasterio
@@ -10,14 +9,14 @@ import logging
 import json
 import xml.etree.ElementTree as ET
 
-from numpy import floating
 from shapely.geometry import shape, mapping
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def set_up_parser():
-    parser = argparse.ArgumentParser(description='Process GeoJSON features, optionally using raster data.')
+    parser = argparse.ArgumentParser(description='Process GeoJSON features, optionally using raster data.',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('geojson_path', help='Path to the input GeoJSON file')
     parser.add_argument('output_geojson_path', help='Path to save the output GeoJSON file')
     parser.add_argument('pan_image_path', help='Path to the panchromatic image')
@@ -85,6 +84,14 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     pan_src = rasterio.open(pan_image_path)
     src = rasterio.open(raster_path) if raster_path else None
 
+    skip_ndwi = False
+    try:
+        check_band_count(green_band_idx, nir_band_idx, src)
+    except ValueError as e:
+        logging.warning(e)
+        logging.warning("Skipping NDWI calculation")
+        skip_ndwi = True
+
     # Adjust to 0-based index for array access
     green_idx, nir_idx = green_band_idx - 1, nir_band_idx - 1
 
@@ -96,7 +103,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
 
             if geom.geom_type == 'Point':
                 coords = [geom.x, geom.y]
-                if src:
+                if src and not skip_ndwi:
                     try:
                         for val in src.sample([coords]):
                             green_band = val[green_idx].astype(float)
@@ -105,7 +112,8 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                             properties['ndwi'] = ndwi_val
                             properties['water'] = get_water_class(ndwi_val)
                     except (ValueError, IndexError) as e:
-                        logging.warning(f"Skipping NDWI calculation for point feature due to error: {e}")
+                        logging.warning("Skipping NDWI calculation for point feature due to error: {e}")
+                        skip_ndwi = True
 
                 try:
                     for val in pan_src.sample([coords]):
@@ -117,7 +125,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                 new_features.append(new_feature)
 
             elif geom.geom_type == 'Polygon':
-                if src:
+                if src and not skip_ndwi:
                     try:
                         out_image, _ = rasterio.mask.mask(src, [geom], all_touched=True, crop=True, nodata=src.nodata)
                         green_band = out_image[green_idx, :, :].astype(float)
@@ -127,6 +135,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                         properties['water'] = get_water_class(ndwi_val)
                     except (ValueError, IndexError) as e:
                         logging.warning(f"Skipping NDWI calculation for polygon feature due to error: {e}")
+                        skip_ndwi = True
 
                 try:
                     pan_image, _ = rasterio.mask.mask(pan_src, [geom], crop=True, nodata=pan_src.nodata)
@@ -180,7 +189,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     # Update schema
     if 'deviation_mean' in schema['properties']:
         schema['properties']['deviation'] = schema['properties'].pop('deviation_mean')
-    if raster_path:
+    if raster_path and not skip_ndwi:
         schema['properties'].update({'ndwi': 'float', 'water': 'str'})
     schema['properties']['pan_value'] = 'float'
     schema['geometry'] = 'Point'
@@ -191,6 +200,16 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
         collection.writerecords(final_features)
 
     return len(final_features)
+
+
+def check_band_count(green_band_idx, nir_band_idx, src):
+    if src:
+        max_band_idx = max(green_band_idx, nir_band_idx)
+        if src.count < max_band_idx:
+            raise ValueError(
+                f"Raster has {src.count} bands, but green band index is {green_band_idx} "
+                f"and NIR band index is {nir_band_idx}."
+            )
 
 
 def cli():
@@ -231,19 +250,26 @@ def cli():
     if args.filter_by_ndwi:
         logging.info(f"Calculating water area from: {args.filter_by_ndwi}")
         with rasterio.open(args.filter_by_ndwi) as src:
-            pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
-            green_band = src.read(args.green_band_idx).astype(float)
-            nir_band = src.read(args.nir_band_idx).astype(float)
-            np.seterr(divide='ignore', invalid='ignore')
-            ndwi = (green_band - nir_band) / (green_band + nir_band)
-            water_mask = ndwi > 0.3
-            water_area_sq_km = np.sum(water_mask) * pixel_area_sq_km
+            try:
+                check_band_count(args.green_band_idx, args.nir_band_idx, src)
+            except ValueError as e:
+                logging.warning(e)
+                water_area_sq_km = 0
+            else:
+                pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
+                green_band = src.read(args.green_band_idx).astype(float)
+                nir_band = src.read(args.nir_band_idx).astype(float)
+                np.seterr(divide='ignore', invalid='ignore')
+                ndwi = (green_band - nir_band) / (green_band + nir_band)
+                water_mask = ndwi > 0.3
+                water_area_sq_km = np.sum(water_mask) * pixel_area_sq_km
 
             if water_area_sq_km > 0:
                 ip_water_density = num_filtered_points / water_area_sq_km
                 logging.info(f"Total water area (NDWI > 0.3): {water_area_sq_km:.2f} sq km")
                 logging.info(f"Water-masked interesting point density: {ip_water_density:.2f} / sq km")
             else:
+                ip_water_density = 0
                 logging.warning("No water area found. Cannot calculate density.")
 
             density_analysis = {
