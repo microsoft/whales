@@ -113,13 +113,16 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                             properties['water'] = get_water_class(ndwi_val)
                     except (ValueError, IndexError) as e:
                         logging.warning("Skipping NDWI calculation for point feature due to error: {e}")
-                        skip_ndwi = True
+                        properties["ndwi"] = None
+                        properties["water"] = ""
 
                 try:
                     for val in pan_src.sample([coords]):
                         properties['pan_value'] = float(val[0])
                 except (ValueError, IndexError) as e:
                     logging.warning(f"Skipping pan value calculation for point feature due to error: {e}")
+                    properties["pan_value"] = None
+
 
                 new_feature = {'type': 'Feature', 'geometry': mapping(geom), 'properties': properties}
                 new_features.append(new_feature)
@@ -135,7 +138,8 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                         properties['water'] = get_water_class(ndwi_val)
                     except (ValueError, IndexError) as e:
                         logging.warning(f"Skipping NDWI calculation for polygon feature due to error: {e}")
-                        skip_ndwi = True
+                        properties["ndwi"] = None
+                        properties["water"] = ""
 
                 try:
                     pan_image, _ = rasterio.mask.mask(pan_src, [geom], crop=True, nodata=pan_src.nodata)
@@ -145,6 +149,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                         properties['pan_value'] = float(mean_pan_value)
                 except (ValueError, IndexError) as e:
                     logging.warning(f"Skipping pan value calculation for polygon feature due to error: {e}")
+                    properties["pan_value"] = None
 
                 centroid = geom.centroid
                 new_feature = {'type': 'Feature', 'geometry': mapping(centroid), 'properties': properties}
@@ -173,7 +178,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
         if filter_by_pan_threshold is not None and feature["properties"].get("pan_value", float('inf')) >= filter_by_pan_threshold:
             continue
         # NDWI filter
-        if raster_path and feature['properties'].get('water') == 'not water':
+        if raster_path and not skip_ndwi and feature['properties'].get('ndwi', -1) < 0.3:
             continue
         # Percentile filter
         if percentile_threshold is not None and feature['properties'].get(score_property, -1) < percentile_threshold:
