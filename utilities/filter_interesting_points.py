@@ -67,6 +67,9 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
         raise FileNotFoundError(f"Raster file not found: {raster_path}")
     if not os.path.exists(pan_image_path):
         raise FileNotFoundError(f"Panchromatic image file not found: {pan_image_path}")
+    min_band_idx = min(green_band_idx, nir_band_idx)
+    if min_band_idx < 1:
+        raise ValueError("Band indices must be 1-based.")
 
     if filter_by_percentile is not None:
         if not 0 <= filter_by_percentile <= 100:
@@ -112,16 +115,16 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                             properties['ndwi'] = ndwi_val
                             properties['water'] = get_water_class(ndwi_val)
                     except (ValueError, IndexError) as e:
-                        logging.warning("Skipping NDWI calculation for point feature due to error: {e}")
-                        properties["ndwi"] = None
-                        properties["water"] = ""
+                        logging.warning(f"Skipping NDWI calculation for point feature due to error: {e}")
+                        properties["ndwi"] = -1
+                        properties["water"] = "not water"
 
                 try:
                     for val in pan_src.sample([coords]):
                         properties['pan_value'] = float(val[0])
                 except (ValueError, IndexError) as e:
                     logging.warning(f"Skipping pan value calculation for point feature due to error: {e}")
-                    properties["pan_value"] = None
+                    properties["pan_value"] = float('inf')
 
 
                 new_feature = {'type': 'Feature', 'geometry': mapping(geom), 'properties': properties}
@@ -138,18 +141,17 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                         properties['water'] = get_water_class(ndwi_val)
                     except (ValueError, IndexError) as e:
                         logging.warning(f"Skipping NDWI calculation for polygon feature due to error: {e}")
-                        properties["ndwi"] = None
-                        properties["water"] = ""
+                        properties["ndwi"] = -1
+                        properties["water"] = "not water"
 
                 try:
-                    pan_image, _ = rasterio.mask.mask(pan_src, [geom], crop=True, nodata=pan_src.nodata)
-                    masked_pan = np.ma.masked_equal(pan_image, pan_src.nodata)
-                    mean_pan_value = masked_pan.mean()
+                    pan_image, _ = rasterio.mask.mask(pan_src, [geom], crop=True, filled=False)
+                    mean_pan_value = pan_image.mean()
                     if not isinstance(mean_pan_value, np.ma.core.MaskedConstant):
                         properties['pan_value'] = float(mean_pan_value)
                 except (ValueError, IndexError) as e:
                     logging.warning(f"Skipping pan value calculation for polygon feature due to error: {e}")
-                    properties["pan_value"] = None
+                    properties["pan_value"] = float('inf')
 
                 centroid = geom.centroid
                 new_feature = {'type': 'Feature', 'geometry': mapping(centroid), 'properties': properties}
@@ -287,9 +289,8 @@ def cli():
         logging.info(f"Calculating total area from: {args.pan_image_path}")
         with rasterio.open(args.pan_image_path) as src:
             pixel_area_sq_km = (src.res[0] * src.res[1]) / 1_000_000
-            pan_band = src.read(1).astype(float)
-            valid_data_mask = np.isfinite(pan_band)
-            valid_area_sq_km = np.sum(valid_data_mask) * pixel_area_sq_km
+            pan_band = src.read(1, masked=True)
+            valid_area_sq_km = pan_band.count() * pixel_area_sq_km
 
             logging.info(f"Total valid area: {valid_area_sq_km:.2f} sq km")
             if valid_area_sq_km > 0:
