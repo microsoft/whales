@@ -134,7 +134,7 @@ def test_metadata_generation_happy_path(tmp_path, monkeypatch):
 
     root = ET.Element("root")
     pgc_imd = ET.SubElement(root, "PGC_IMD")
-    ET.SubElement(pgc_imd, "CATID").text = "TEST_CATID"
+    ET.SubElement(pgc_imd, "STRETCH").text = "rf"
     ET.SubElement(pgc_imd, "CLOUDCVR").text = "0.1"
     tree = ET.ElementTree(root)
     tree.write(image_meta_xml)
@@ -160,7 +160,7 @@ def test_metadata_generation_happy_path(tmp_path, monkeypatch):
 
     assert "image_metadata" in output_metadata
     assert output_metadata["image_metadata"]["image_id"] == "pan"
-    assert output_metadata["image_metadata"]["catid"] == "TEST_CATID"
+    assert output_metadata["image_metadata"]['image_processing_settings']["stretch"] == "rf"
 
     assert "filtering_parameters" in output_metadata
     assert output_metadata["filtering_parameters"]["pan_image_fn"] == "pan.tif"

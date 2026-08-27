@@ -58,7 +58,7 @@ def cli():
     logging.info(f"Found {len(metadata_files)} metadata files to process.")
 
     # Prepare to write CSV
-    header = ['source_file', 'num_interesting_points', "valid_area_sq_km",
+    header = ['source_file', 'catalog_id', 'num_interesting_points', "valid_area_sq_km",
               'ip_density_per_sqkm_valid_data','water_area_sq_km', 'ip_density_per_sq_km_water']
     rows = []
 
@@ -70,9 +70,11 @@ def cli():
                 metadata = json.load(f)
             
             density_analysis = metadata.get('density_analysis')
-            if density_analysis and isinstance(density_analysis, dict):
+            image_metadata = metadata.get('image_metadata')
+            if density_analysis and isinstance(density_analysis, dict) and image_metadata and isinstance(image_metadata, dict):
                 row_data = {
                     'source_file': os.path.basename(filename).replace('_meta.json', ''),
+                    'catalog_id': image_metadata.get('catalog_id', 'not_found'),
                     'num_interesting_points': density_analysis.get('num_interesting_points', 'NA'),
                     'water_area_sq_km': density_analysis.get('water_area_sq_km', 'NA'),
                     'ip_density_per_sq_km_water': density_analysis.get('ip_density_per_sq_km_water', 'NA'),

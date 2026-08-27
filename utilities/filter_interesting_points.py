@@ -244,12 +244,25 @@ def cli():
         image_id = os.path.basename(os.path.splitext(xml_metadata_path)[0])
         tree = ET.parse(xml_metadata_path)
         root = tree.getroot()
+
+        image_metadata = {"image_id": image_id}
+        catalog_id_tag = 'CATID'
+        catalog_id_element = root.find(f".//{catalog_id_tag}")
+        if catalog_id_element is not None:
+            image_metadata["catalog_id"] = catalog_id_element.text
+        else:
+            msg = f"{catalog_id_tag} tag not found in XML."
+            image_metadata["catalog_id"] = msg
+            logging.warning(f"{image_id}: {msg}")
+
         pgc_imd_element = root.find("PGC_IMD")
         if pgc_imd_element is not None:
-            image_metadata = {"image_id": image_id}
-            image_metadata.update({child.tag.lower(): child.text for child in pgc_imd_element})
+            image_metadata["image_processing_settings"] = {child.tag.lower(): child.text for child in pgc_imd_element}
         else:
-            image_metadata = "'PGC_IMD' section not found in image metadata."
+            msg = "PGC_IMD tag not found in XML."
+            image_metadata["image_processing_settings"] = msg
+            logging.warning(f"{image_id}: {msg}")
+
     else:
         image_metadata = "Image metadata not found."
 
