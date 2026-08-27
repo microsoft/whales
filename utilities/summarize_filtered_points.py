@@ -75,11 +75,11 @@ def cli():
                 row_data = {
                     'source_file': os.path.basename(filename).replace('_meta.json', ''),
                     'catalog_id': image_metadata.get('catalog_id', 'not_found'),
-                    'num_interesting_points': density_analysis.get('num_interesting_points', 'NA'),
-                    'water_area_sq_km': density_analysis.get('water_area_sq_km', 'NA'),
-                    'ip_density_per_sq_km_water': density_analysis.get('ip_density_per_sq_km_water', 'NA'),
-                    'valid_area_sq_km': density_analysis.get('valid_area_sq_km', 'NA'),
-                    "ip_density_per_sqkm_valid_data": density_analysis.get('ip_density_per_sqkm_valid_data', 'NA'),
+                    'num_interesting_points': density_analysis.get('num_interesting_points', ''),
+                    'water_area_sq_km': density_analysis.get('water_area_sq_km', ''),
+                    'ip_density_per_sq_km_water': density_analysis.get('ip_density_per_sq_km_water', ''),
+                    'valid_area_sq_km': density_analysis.get('valid_area_sq_km', ''),
+                    "ip_density_per_sqkm_valid_data": density_analysis.get('ip_density_per_sqkm_valid_data', ''),
                 }
                 rows.append(row_data)
             else:
