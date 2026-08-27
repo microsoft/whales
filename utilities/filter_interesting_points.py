@@ -58,9 +58,25 @@ def get_ndwi_value(green_band, nir_band) -> float:
 
 def process_features(geojson_path, output_geojson_path, pan_image_path, raster_path=None,
                      green_band_idx=3, nir_band_idx=8,
-                     filter_by_pan_threshold=None, filter_by_percentile=None) -> int:
+                     filter_by_pan_threshold=None, filter_by_percentile=None) -> (int, bool):
     """
-    Processes GeoJSON features, calculates NDWI and pan values, and filters them.
+    Processes GeoJSON features by converting polygon geometries to centroids,
+    calculating NDWI and panchromatic values, and applying various filters.
+
+    Args:
+        geojson_path (str): Path to the input GeoJSON file.
+        output_geojson_path (str): Path to save the output GeoJSON file.
+        pan_image_path (str): Path to the panchromatic image.
+        raster_path (str, optional): Path to the input multiband raster file for NDWI calculation.
+        green_band_idx (int, optional): 1-based index of the green band in the multiband raster.
+        nir_band_idx (int, optional): 1-based index of the NIR band in the multiband raster.
+        filter_by_pan_threshold (float, optional): The threshold for filtering features based on panchromatic values.
+        filter_by_percentile (float, optional): The percentile for filtering features based on deviation scores.
+
+    Returns:
+        A tuple containing:
+        - The number of features in the output file.
+        - A boolean indicating if the NDWI calculation was skipped.
     """
 
     if raster_path and not os.path.exists(raster_path):
@@ -206,7 +222,7 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     with fiona.open(output_geojson_path, 'w', driver='GeoJSON', crs=crs, schema=schema) as collection:
         collection.writerecords(final_features)
 
-    return len(final_features)
+    return len(final_features), skip_ndwi
 
 
 def check_band_count(green_band_idx, nir_band_idx, src):
@@ -225,7 +241,7 @@ def cli():
         logging.warning(f"Output file '{args.output_geojson_path}' already exists. Skipping.")
         return
 
-    num_filtered_points = process_features(
+    num_filtered_points, skip_ndwi = process_features(
         args.geojson_path, args.output_geojson_path, args.pan_image_path,
         args.filter_by_ndwi, args.green_band_idx, args.nir_band_idx,
         args.filter_by_pan_threshold, args.filter_by_percentile
@@ -267,10 +283,10 @@ def cli():
         image_metadata = "Image metadata not found."
 
     density_analysis = {}
-    if args.filter_by_ndwi:
+    if args.filter_by_ndwi and not skip_ndwi:
         logging.info(f"Calculating water area from: {args.filter_by_ndwi}")
         with rasterio.open(args.filter_by_ndwi) as src:
-            try:
+            try: # this case should have been caught earlier but leaving the check here for completeness
                 check_band_count(args.green_band_idx, args.nir_band_idx, src)
             except ValueError as e:
                 logging.warning(e)
