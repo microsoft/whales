@@ -60,7 +60,7 @@ rm cb_2021_us_state_500k.*
 
 ## Interesting point detector
 
-The `generate_interesting_points.py` script is the first step in our pipeline. It uses an unsupervised approach to identify anomalous points in satellite imagery that are offshore. These "interesting points" are then fed into the labeling tool.
+The `generate-interesting-points` command is the first step in our pipeline. It uses an unsupervised approach to identify anomalous points in satellite imagery that are offshore. These "interesting points" are then fed into the labeling tool.
 
 The script works by scanning the image and identifying pixels that stand out from their surroundings. It offers several methods for this, each with its own strengths:
 
@@ -86,7 +86,7 @@ The script works by scanning the image and identifying pixels that stand out fro
 
 **Usage example**: The following command will load Maxar satellite imagery off the coast of Turkey, use the `big_window` method to find groups of anomalous pixels, and save the centroid locations of these groups to `results/` in GeoJSON format.
 ```bash
-python generate_interesting_points.py \
+generate-interesting-points \
     --input_fn "https://maxar-opendata.s3.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/37/031133021120/2023-02-12/10300100E1B9D900-visual.tif" \
     --output_fn results/interesting_points.geojson \
     --method big_window \
