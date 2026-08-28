@@ -53,6 +53,59 @@ def test_filter_converts_polygons_and_filters_by_percentile(tmp_path):
     assert features[0]["properties"]["deviation"] == 10
 
 
+def test_filter_points_by_deviation_percentile(tmp_path):
+    input_path = tmp_path / "input.geojson"
+    output_path = tmp_path / "output.geojson"
+    pan_path = tmp_path / "pan.tif"
+    schema = {
+        "geometry": "Point",
+        "properties": {"deviation": "float"},
+    }
+
+    with fiona.open(
+        input_path,
+        "w",
+        driver="GeoJSON",
+        crs="EPSG:32618",
+        schema=schema,
+    ) as collection:
+        for x, deviation in [(1, 1.0), (11, 10.0)]:
+            collection.write(
+                {
+                    "type": "Feature",
+                    "geometry": mapping(Point(x, 1)),
+                    "properties": {"deviation": deviation},
+                }
+            )
+
+    with rasterio.open(
+        pan_path,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=20,
+        count=1,
+        dtype=np.uint8,
+        crs="EPSG:32618",
+        transform=rasterio.transform.from_origin(0, 10, 1, 1),
+    ) as dst:
+        dst.write(np.ones((10, 20), dtype=np.uint8), 1)
+
+    process_features(
+        input_path,
+        output_path,
+        pan_image_path=pan_path,
+        filter_by_percentile=50,
+    )
+
+    with fiona.open(output_path) as collection:
+        features = list(collection)
+
+    assert len(features) == 1
+    assert features[0]["geometry"]["coordinates"] == (11, 1)
+    assert features[0]["properties"]["deviation"] == 10
+
+
 def test_point_geometry_is_processed_correctly(tmp_path):
     input_path = tmp_path / "input.geojson"
     output_path = tmp_path / "output.geojson"
@@ -168,3 +221,57 @@ def test_metadata_generation_happy_path(tmp_path, monkeypatch):
     assert "density_analysis" in output_metadata
     assert output_metadata["density_analysis"]["num_interesting_points"] == 1
     assert "valid_area_sq_km" in output_metadata["density_analysis"]
+
+
+def test_metadata_omits_ndwi_filter_when_skipped(tmp_path, monkeypatch):
+    input_geojson = tmp_path / "input.geojson"
+    output_geojson = tmp_path / "output.geojson"
+    pan_image = tmp_path / "pan.tif"
+    mul_image = tmp_path / "mul.tif"
+    output_meta_json = tmp_path / "output_meta.json"
+
+    with fiona.open(
+        input_geojson,
+        "w",
+        driver="GeoJSON",
+        crs="EPSG:32618",
+        schema={"geometry": "Point", "properties": {}},
+    ) as collection:
+        collection.write(
+            {
+                "type": "Feature",
+                "geometry": mapping(Point(0.5, 0.5)),
+                "properties": {},
+            }
+        )
+
+    raster_options = {
+        "driver": "GTiff",
+        "height": 1,
+        "width": 1,
+        "dtype": "uint8",
+        "crs": "EPSG:32618",
+        "transform": rasterio.transform.from_origin(0, 1, 1, 1),
+    }
+    with rasterio.open(pan_image, "w", count=1, **raster_options) as dst:
+        dst.write(np.ones((1, 1), dtype=np.uint8), 1)
+    with rasterio.open(mul_image, "w", count=4, **raster_options) as dst:
+        dst.write(np.ones((4, 1, 1), dtype=np.uint8))
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "filter_interesting_points.py",
+            str(input_geojson),
+            str(output_geojson),
+            str(pan_image),
+            "--filter-by-ndwi",
+            str(mul_image),
+        ],
+    )
+    cli()
+
+    with open(output_meta_json, "r") as f:
+        output_metadata = json.load(f)
+
+    assert output_metadata["filtering_parameters"]["filter_by_ndwi"] is None

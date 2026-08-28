@@ -98,7 +98,7 @@ python generate_interesting_points.py \
 The `filter_interesting_points.py` script provides a flexible way to process and filter GeoJSON features. It can convert polygon geometries to centroids, calculate NDWI and pan values when raster data is provided, and filter features based on various criteria.
 
 **Usage Example**:
-The following command demonstrates how to use the script to process a GeoJSON file, filter it based on the 90th percentile of the `deviation_mean` scores, and save the output.
+The following command demonstrates how to use the script to process a GeoJSON file, filter it based on the 90th percentile of the `deviation` or `deviation_mean` scores, and save the output.
 
 ```bash
 filter-interesting-points results/interesting_points.geojson results/filtered_points.geojson results/pan_image.tif --filter-by-percentile 90

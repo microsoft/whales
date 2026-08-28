@@ -184,14 +184,25 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
     
     # Pre-calculate percentile threshold if needed
     percentile_threshold = None
+    score_property = None
     if filter_by_percentile is not None:
-        score_property = 'deviation_mean'
-        scores = [f['properties'].get(score_property) for f in new_features if f['properties'].get(score_property) is not None]
-        if scores:
+        score_property = next(
+            (name for name in ('deviation_mean', 'deviation') if name in schema['properties']),
+            None,
+        )
+        if score_property is None:
+            logging.warning("'deviation_mean' or 'deviation' not found in features. Skipping percentile filter.")
+        else:
+            scores = [
+                f['properties'][score_property]
+                for f in new_features
+                if f['properties'].get(score_property) is not None
+            ]
+        if score_property is not None and scores:
             percentile_threshold = np.percentile(scores, filter_by_percentile)
             logging.info(f"Filtering by percentile: {filter_by_percentile} ({score_property} >= {percentile_threshold:.2f})")
-        else:
-            logging.warning(f"'{score_property}' not found in features. Skipping percentile filter.")
+        elif score_property is not None:
+            logging.warning(f"No '{score_property}' values found in features. Skipping percentile filter.")
 
     for feature in new_features:
         # Pan threshold filter
