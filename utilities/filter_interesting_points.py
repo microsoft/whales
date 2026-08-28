@@ -172,6 +172,8 @@ def process_features(geojson_path, output_geojson_path, pan_image_path, raster_p
                 centroid = geom.centroid
                 new_feature = {'type': 'Feature', 'geometry': mapping(centroid), 'properties': properties}
                 new_features.append(new_feature)
+            else:
+                logging.info("Unexpected feature type")
     finally:
         if src:
             src.close()
