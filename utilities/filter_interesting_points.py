@@ -343,7 +343,7 @@ def cli():
             "filtered_points_fn": os.path.basename(args.output_geojson_path),
             "pan_image_fn": os.path.basename(args.pan_image_path),
             "filter_by_ndwi": os.path.basename(args.filter_by_ndwi)
-            if args.filter_by_ndwi
+            if args.filter_by_ndwi and not skip_ndwi
             else None,
             "green_band_idx": args.green_band_idx,
             "nir_band_idx": args.nir_band_idx,
