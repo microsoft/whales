@@ -398,22 +398,24 @@ def main(args):
         f"Wrote {count} features to '{output_fn}' in" + f" {time.time() - tic} seconds"
     )
 
-    # Write metadata
-    metadata = vars(args)
-    metadata['output_fn'] = os.path.basename(output_fn)
-    if 'output_dir' in metadata:
-        del metadata['output_dir']
-    metadata['package_version'] = f"whales v{whales_version}"
-    metadata_fn = os.path.splitext(output_fn)[0] + "_meta.json"
-    with open(metadata_fn, "w") as f:
-        json.dump(metadata, f, indent=2)
-    print(f"Wrote metadata to '{metadata_fn}'")
-
-
     # Delete deviation raster if --write-deviation-raster is false
     if not args.write_deviation_raster:
         print(f"Deleting temporary deviation raster: {output_deviations_fn}")
         os.remove(output_deviations_fn)
+
+    # Write metadata
+    metadata = vars(args)
+    metadata['output_fn'] = os.path.basename(output_fn)
+    metadata['package_version'] = f"whales v{whales_version}"
+    del_vars = ['output_dir', 'overwrite']
+    for dvar in del_vars:
+        if dvar in metadata:
+            del metadata[dvar]
+
+    metadata_fn = os.path.splitext(output_fn)[0] + "_meta.json"
+    with open(metadata_fn, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Wrote metadata to '{metadata_fn}'")
 
 
 def cli():

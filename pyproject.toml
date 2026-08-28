@@ -42,15 +42,13 @@ dev = [
 ]
 
 [project.scripts]
-filter-interesting-points = "utilities.ip_pg2pt_filter:cli"
-generate-interesting-points = "generate_interesting_points:cli"
+summarize-filtered-points = "utilities.summarize_filtered_points:cli"
+filter-interesting-points = "utilities.filter_interesting_points:cli"
+generate-interesting-points = "utilities.generate_interesting_points:cli"
 
 [project.urls]
 Homepage = "https://github.com/microsoft/whales"
 Issues = "https://github.com/microsoft/whales/issues"
-
-[tool.setuptools]
-py-modules = ["generate_interesting_points"]
 
 [tool.setuptools.dynamic]
 version = { attr = "whales.__version__" }

@@ -4,7 +4,7 @@ import fiona
 import pytest
 import rasterio
 
-from generate_interesting_points import main, set_up_parser
+from utilities.generate_interesting_points import main, set_up_parser
 
 DATA_DIR = Path(__file__).parent / "data"
 
